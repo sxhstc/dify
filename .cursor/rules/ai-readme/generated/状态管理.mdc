@@ -1,0 +1,184 @@
+---
+description: '状态管理 - Dify 前端 TanStack Query / Zustand / Jotai / nuqs / use-context-selector 分工；当需要修改前端状态层时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# 状态管理
+
+## 状态管理方案
+
+Dify 前端采用"按状态来源分库治理"的策略，不存在"单一全局 store"。每种状态库职责互不重叠：
+
+| 库 | 职责 | 典型场景 |
+| --- | --- | --- |
+| `@tanstack/react-query` | 服务端状态 / 远程缓存 / mutation | 通过 `consoleQuery` / `marketplaceQuery` 的 `queryOptions` / `mutationOptions` 调用 |
+| `zustand` | 复杂客户端业务 store（含 slice 组合） | 工作流画布、RAG Pipeline 编辑器、应用编辑器等"页面级"状态 |
+| `jotai` | 原子化、低耦合的全局/局部状态 | 模型供应商面板、Marketplace 选择项 |
+| `use-context-selector` | 高频更新的 React Context（精细订阅） | 全局 Provider 链中需细粒度订阅的 Context |
+| `nuqs` | URL 查询参数状态 | 列表筛选、tab 切换等需要刷新可恢复的状态 |
+| 内置 React Hooks | 局部短暂状态 | `useState` / `useReducer` / `useMemo` 等 |
+
+## 全局 Provider 链
+
+`web/app/layout.tsx` 自外向内的核心 Provider 顺序：
+
+```mermaid
+flowchart LR
+    Themes[ThemeProvider next-themes] --> Nuqs[NuqsAdapter] --> Tanstack[TanstackQueryInitializer<br>QueryClientProvider]
+    Tanstack --> I18n[I18nServerProvider + I18nClientProvider]
+    I18n --> Tooltip[TooltipProvider base-ui]
+    Tooltip --> Toast[ToastHost dify-ui]
+    Toast --> Pages[Children]
+    Themes --> Jotai[JotaiProvider]
+    Themes --> Amplitude[AmplitudeProvider]
+```
+
+| Provider | 来源 | 作用 |
+| --- | --- | --- |
+| `ThemeProvider` | `next-themes` | 主题（亮/暗）切换，含 `data-theme` 属性 |
+| `JotaiProvider` | `jotai/react` | jotai 原子作用域 |
+| `NuqsAdapter` | `nuqs/adapters/next/app` | URL 状态 |
+| `TanstackQueryInitializer` | `web/context/query-client.tsx` | 单例 QueryClient 注入；客户端缓存全局唯一 |
+| `I18nServerProvider` / `I18nClientProvider` | `web/app/components/provider/*` + `react-i18next` | 国际化 |
+| `TooltipProvider` | `@base-ui/react` | tooltip 全局 delay/closeDelay |
+| `ToastHost` | `@langgenius/dify-ui/toast` | 全局 toast |
+| `AmplitudeProvider` | `web/app/components/base/amplitude` | 行为埋点（CE 通常无 key） |
+| `PartnerStackCookieRecorder` | `web/app/components/billing/partner-stack/cookie-recorder` | 计费引流（按需） |
+
+## TanStack Query（服务端状态）
+
+| 来源 | 路径 | 说明 |
+| --- | --- | --- |
+| 单例 QueryClient | `web/context/query-client.tsx` + `web/context/query-client-server.tsx` | SSR/客户端各一份；客户端单例缓存 |
+| oRPC 工具 | `web/service/client.ts` | `consoleQuery` / `marketplaceQuery`（`createTanstackQueryUtils`） |
+| Contract | `web/contract/router.ts` + `web/contract/console/*` + `packages/contracts/` | oRPC contract 定义（Zod） |
+| Devtools | `web/app/components/devtools/tanstack/loader.tsx` | 仅开发环境注入 |
+
+调用约定（详见 `web/AGENTS.md` + `frontend-query-mutation` skill）：
+
+| 场景 | 推荐写法 |
+| --- | --- |
+| 单端点 1:1 | 直接 `useQuery(consoleQuery.x.y.queryOptions(...))` |
+| 多端点共享 options | 抽小型 helper（不要写 use-* 透传 hook） |
+| 业务编排 / 多操作 | feature 垂直 hook（如 `useApplyTagBindings`） |
+| 条件查询 | 优先 `input: skipToken`，避免 `enabled` + 非空断言 |
+| 缓存默认行为 | 写在 `createTanstackQueryUtils` 的 `experimental_defaults`（如 `tags` 操作的 `onSuccess`） |
+| Mutation | `useMutation(consoleQuery.x.y.mutationOptions(...))`；默认用 `mutate`，必要时 `mutateAsync` 配 try/catch |
+
+迁移目标：
+
+- `web/service/use-*.ts` 与 `web/service/*.ts` 中的旧版调用作为遗留代码；新代码必须走 `consoleQuery` / `marketplaceQuery`。
+
+## Zustand（页面/模块级 store）
+
+主要 store 列表：
+
+| Store | 路径 | 作用 |
+| --- | --- | --- |
+| 工作流主 store | `web/app/components/workflow/store/index.ts`（含多 slice：`web/app/components/workflow/store/workflow/*`） | 节点、边、变量池、运行状态、面板控制等 |
+| 工作流 hooks store | `web/app/components/workflow/hooks-store/store.ts` | 工作流 hook 共享数据 |
+| 工作流触发器状态 | `web/app/components/workflow/store/trigger-status.ts` | 触发器面板 |
+| 工作流插件依赖 | `web/app/components/workflow/plugin-dependency/store.ts` | 插件依赖弹窗 |
+| 工作流 dataset 详情 | `web/app/components/workflow/datasets-detail-store/store.ts` | 节点中知识库选择 |
+| Note 编辑器 | `web/app/components/workflow/note-node/note-editor/store.ts` | Note 节点 |
+| LLM 节点 JSON Schema | `web/app/components/workflow/nodes/llm/components/json-schema-config-modal/visual-editor/store.ts` | 可视化 schema 编辑 |
+| RAG Pipeline 主 store | `web/app/components/rag-pipeline/store/index.ts` | RAG Pipeline 页面 |
+| 数据源创建 store | `web/app/components/datasets/documents/create-from-pipeline/data-source/store/index.ts` + `slices/*` | 数据源选择/上传 |
+| 应用 store | `web/app/components/app/store.ts` | 应用页面级状态 |
+| 工具 labels | `web/app/components/tools/labels/store.ts` | 工具标签 |
+| 插件 readme 面板 | `web/app/components/plugins/readme-panel/store.ts` | 插件 README 抽屉 |
+| 插件页面筛选 | `web/app/components/plugins/plugin-page/filter-management/store.ts` | 插件筛选 |
+| 插件详情面板 | `web/app/components/plugins/plugin-detail-panel/store.ts` | 插件详情侧栏 |
+| Features store | `web/app/components/base/features/store.ts` | 应用 features 配置 |
+
+时间旅行：
+
+- `zundo` 已纳入依赖，可用于工作流等 store 的撤销/重做（在需要的 store 上启用）。
+
+## Jotai（原子状态）
+
+| 原子文件 | 路径 | 作用 |
+| --- | --- | --- |
+| 模型供应商页面 | `web/app/components/header/account-setting/model-provider-page/atoms.ts` | 模型供应商面板的全局原子状态 |
+| Marketplace | `web/app/components/plugins/marketplace/atoms.ts` | 市场页面筛选/选择 |
+
+> 全局 `JotaiProvider` 在 `web/app/layout.tsx` 顶层注入。
+
+## use-context-selector（精细订阅）
+
+用于需要频繁更新但又不希望全量 re-render 的 Context，常见于：
+
+| Context | 路径 |
+| --- | --- |
+| App Context | `web/context/app-context-provider.tsx` |
+| Provider Context | `web/context/provider-context-provider.tsx` |
+| EventEmitter Context | `web/context/event-emitter-provider.tsx` |
+| 其他业务 Context | `web/context/*.tsx`、各业务目录的 `*-context.tsx` |
+
+## nuqs（URL 状态）
+
+| 模式 | 路径 / 接口 |
+| --- | --- |
+| 客户端读写 | `nuqs` 的 `useQueryState` / `useQueryStates` |
+| 服务端 loader | `nuqs/server` 的 `createLoader` + `inferParserType` |
+| Adapter | `web/app/layout.tsx` 中 `NuqsAdapter`（`nuqs/adapters/next/app`） |
+| 测试 | `web/test/nuqs-testing.ts` 提供 `createNuqsTestWrapper` |
+
+典型用途：
+
+- 应用列表筛选、应用类型 tab、知识库搜索关键字、列表分页等
+- 替代 hand-rolled `useState + setSearchParams` 写法
+
+## 状态流转图
+
+```mermaid
+flowchart TB
+    User[用户操作] --> UI[React Component]
+    UI --> Hook[业务 Hook]
+    Hook -->|本地| Local[useState / useReducer]
+    Hook -->|页面/模块| Z[Zustand Store]
+    Hook -->|原子| J[Jotai Atom]
+    Hook -->|远程| TQ[TanStack Query<br>useQuery / useMutation]
+    Hook -->|URL| N[nuqs useQueryState]
+    Hook -->|跨组件 Context| CS[use-context-selector Context]
+
+    TQ -->|HTTP / oRPC| API[(后端 API)]
+    API --> TQ
+    TQ -->|setQueryData / invalidate| TQCache[QueryClient Cache]
+    Z --> UI
+    J --> UI
+    CS --> UI
+    N -->|history.replaceState| URL[(浏览器地址栏)]
+    URL --> N
+```
+
+## 状态库选择决策
+
+| 数据是否要持久化到 URL？ | 数据是否来自后端？ | 是否跨多个组件共享且更新频繁？ | 选择 |
+| --- | --- | --- | --- |
+| 是 | / | / | nuqs |
+| 否 | 是 | / | TanStack Query（首选 oRPC） |
+| 否 | 否 | 单组件局部 | useState / useReducer |
+| 否 | 否 | 多组件共享，业务复杂含联动 | Zustand store（按页面/模块切分） |
+| 否 | 否 | 多组件共享，原子化 | Jotai |
+| 否 | 否 | 在已有 Context 上需细粒度订阅 | use-context-selector |
+
+## 常见反模式（来自 `web/AGENTS.md` + skill）
+
+| 反模式 | 替代 |
+| --- | --- |
+| 自己重写 fetch + setState 缓存 | 用 `useQuery(consoleQuery.x.y.queryOptions(...))` |
+| 在组件里写一次性的 `invalidateQueries` 散落各处 | 把固定的失效写入 `experimental_defaults`；业务编排放 feature hook |
+| 给 oRPC contract 写一层 `use-xxx` 透传 hook | 直接在调用点用 `queryOptions` |
+| 使用 `enabled` + `params: appId!` 跳过 ts | 改用 `input: skipToken` |
+| 在多个 Provider 中重复创建 QueryClient | 使用 `web/context/query-client.tsx` 提供的单例 |
+
+## 调试工具
+
+| 工具 | 启用方式 | 备注 |
+| --- | --- | --- |
+| TanStack React Query Devtools | 开发环境 `TanStackDevtoolsLoader` 自动加载 | `web/app/components/devtools/tanstack/loader.tsx` |
+| TanStack React Form Devtools | 在使用 `@tanstack/react-form` 的页面手动接入 | 已纳入 devDependencies |
+| React Scan | `web/app/components/devtools/react-scan/loader.tsx` 在 `IS_DEV` 时注入 | 本地开发环境会自动加载；如遇页面噪音可改为按需开启 |

@@ -1,0 +1,185 @@
+---
+description: '组件接口 - Dify 前端 dify-ui 与 web/app/components 关键组件清单；当需要使用或扩展前端组件时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# 组件接口
+
+## 组件分层
+
+| 层 | 路径 | 定位 | 引用规则 |
+| --- | --- | --- | --- |
+| 通用 UI 库 | `packages/dify-ui/src/` | overlay / portal / 基础原语，跨业务复用 | 新代码必须从 `@langgenius/dify-ui/*` 引入；overlay 必须使用 `dify-ui` 实现 |
+| 业务通用组件 | `web/app/components/base/` | 业务无关的原子/分子组件（输入、表格、上传、Markdown、Editor 等） | 新代码可继续使用，但**不得新增**已废弃的 overlay 形态（参考 `web/AGENTS.md` 与 `web/docs/overlay-migration.md`） |
+| 业务组件 | `web/app/components/{apps, workflow, chat, datasets, explore, plugins, header, tools, billing, share, signin, devtools, ...}/` | 按业务域划分 | 调整时遵循 `web/AGENTS.md` 与 `frontend-query-mutation` skill |
+| 业务 feature | `web/features/` | 跨页面共享的业务垂直 hook / 组件（如 tag-management） | 优先于 `service/use-*.ts` 旧版包装 |
+| 客户化 | `web/app/components/custom/` | 客户/品牌化组件 | 视项目实际使用 |
+
+## `@langgenius/dify-ui` 组件清单
+
+| 组件 | 入口 | 说明 |
+| --- | --- | --- |
+| Alert Dialog | `packages/dify-ui/src/alert-dialog/index.tsx` | 警告对话框 |
+| Autocomplete | `packages/dify-ui/src/autocomplete/index.tsx` | 自动补全输入 |
+| Avatar | `packages/dify-ui/src/avatar/index.tsx` | 头像 |
+| Button | `packages/dify-ui/src/button/index.tsx` | 按钮 |
+| Combobox | `packages/dify-ui/src/combobox/index.tsx` | 组合框 |
+| Context Menu | `packages/dify-ui/src/context-menu/index.tsx` | 右键菜单 |
+| Dialog | `packages/dify-ui/src/dialog/index.tsx` | 对话框 |
+| Dropdown Menu | `packages/dify-ui/src/dropdown-menu/index.tsx` | 下拉菜单 |
+| Meter | `packages/dify-ui/src/meter/index.tsx` | 度量表 |
+| Number Field | `packages/dify-ui/src/number-field/index.tsx` | 数字输入 |
+| Popover | `packages/dify-ui/src/popover/index.tsx` | 弹出层 |
+| Preview Card | `packages/dify-ui/src/preview-card/index.tsx` | 预览卡片 |
+| Scroll Area | `packages/dify-ui/src/scroll-area/index.tsx` | 滚动容器 |
+| Select | `packages/dify-ui/src/select/index.tsx` | 选择器 |
+| Slider | `packages/dify-ui/src/slider/index.tsx` | 滑块 |
+| Switch | `packages/dify-ui/src/switch/index.tsx` | 开关 |
+| Toast | `packages/dify-ui/src/toast/index.tsx`（顶层 `ToastHost`） | 全局 toast |
+| Tooltip | `packages/dify-ui/src/tooltip/index.tsx`（外层 `TooltipProvider`） | 全局 tooltip |
+| Overlay 基础设施 | `packages/dify-ui/src/overlay-shared.ts`、`placement.ts`、`cn.ts` | overlay / 位置 / className 合并 |
+| 主题 | `packages/dify-ui/src/themes/{light,dark,theme}.css` | 主题变量 |
+| 样式 | `packages/dify-ui/src/styles/{styles,components,utilities}.css` | 全局样式 |
+| 图标插件 | `packages/dify-ui/src/plugins/icons.ts` | 图标插件 |
+
+> 大多数组件都有 `__tests__/` 与 `*.stories.tsx`，可作为使用示例与 Storybook 入口。
+
+## 业务通用组件（`web/app/components/base/*`）
+
+按职责分组（基于 `ls web/app/components/base` 的实际目录）：
+
+| 类别 | 组件目录 |
+| --- | --- |
+| 反馈 / 加载 | `alert.tsx` / `error-boundary` / `infotip` / `inline-delete-confirm` / `loading` / `skeleton` / `spinner` / `node-status` / `progress-bar` / `simple-pie-chart` / `pagination` |
+| 输入 / 表单 | `input` / `input-with-copy` / `auto-height-textarea` / `block-input` / `checkbox` / `checkbox-list` / `chip` / `radio` / `radio-card` / `segmented-control` / `search-input` / `param-item` / `form` / `date-and-time-picker` |
+| 选择器 / 弹层 | `dialog` / `drawer` / `drawer-plus` / `modal` / `modal-like-wrap` / `fullscreen-modal` / `popover`（由 dify-ui 重导出） / `corner-label` / `notion-page-selector` / `linked-apps-panel` / `prompt-log-modal` / `agent-log-modal` / `message-log-modal` |
+| 媒体 | `audio-btn` / `audio-gallery` / `image-gallery` / `image-uploader` / `file-icon` / `file-thumb` / `file-uploader` / `mermaid` / `qrcode` / `new-audio-button` |
+| Markdown / Editor | `markdown` / `markdown-blocks` / `markdown-with-directive` / `prompt-editor`（Lexical） |
+| 应用 / 头像 / 标识 | `app-icon` / `app-icon-picker` / `app-unavailable.tsx` / `answer-icon` / `notion-icon` / `logo` / `badge` / `badge.tsx` / `premium-badge` |
+| 数据展示 | `carousel` / `divider` / `effect` / `grid-mask` / `list-empty` / `sort` / `tab-slider` 等 |
+| 复制 / 操作 | `action-button` / `copy-feedback` / `copy-icon` / `encrypted-bottom` / `float-right-container` |
+| 工具栏 / 设置 | `features` / `notion-connector` / `emoji-picker` / `chat`（基础聊天组件） |
+| 图标 | `icons`（自动生成自 `iconify-collections`） |
+| 杂项 | `ga`（Google Analytics 等）、`amplitude`（行为埋点）、`message-log-modal` |
+
+> 完整子目录请直接查看仓库；该层目前比较"厚"，仍是新需求最常落点。
+
+## 业务领域组件（`web/app/components/<domain>/`）
+
+| 域 | 路径 | 主要内容 |
+| --- | --- | --- |
+| 应用列表 | `web/app/components/apps/` | 应用卡片、列表、过滤、Workflow Online Users 等 |
+| 应用配置 | `web/app/components/app/` | 应用详情、模型配置、调试、Site、Annotation、Trigger、Variable、Publisher 等 |
+| 应用侧栏 | `web/app/components/app-sidebar/` | 应用进入后的左侧导航 |
+| 工作流编辑 | `web/app/components/workflow/`、`web/app/components/workflow-app/` | 节点系统、画布、变量检查、协作、调试预览 |
+| RAG Pipeline | `web/app/components/rag-pipeline/` | 流水线编辑、面板、test run、step |
+| 数据集 | `web/app/components/datasets/` | 知识库、文档、切片、metadata、preview、website crawl |
+| 探索 / 模板 | `web/app/components/explore/` | 模板市场、试用、banner |
+| 插件 | `web/app/components/plugins/` | 插件市场、详情、安装、auth |
+| 工具 | `web/app/components/tools/` | 工具创建、Custom、API、MCP、Workflow as Tool、labels |
+| 聊天通用 | `web/app/components/base/chat/` | 聊天 UI、SSE 处理、消息渲染 |
+| 头部 / 账户 | `web/app/components/header/` | 顶部导航、账户中心、模型供应商、数据源、Notification |
+| 计费 | `web/app/components/billing/` | 计费、订阅、PartnerStack |
+| Goto Anything | `web/app/components/goto-anything/` | 全局命令面板 |
+| Develop / WebApp 嵌入 | `web/app/components/develop/`、`web/app/components/share/` | Webapp / 分享、嵌入说明 |
+| 登录 | `web/app/components/signin/` | 登录、找回密码 |
+| Devtools | `web/app/components/devtools/` | tanstack devtools loader、react-scan loader |
+| 客户化 | `web/app/components/custom/` | 自定义品牌组件 |
+
+## Provider 组件清单
+
+| Provider | 路径 | 使用 |
+| --- | --- | --- |
+| 应用上下文 | `web/context/app-context-provider.tsx` | 当前应用 / 工作区 |
+| Provider 上下文 | `web/context/provider-context-provider.tsx` | 模型供应商等 |
+| EventEmitter | `web/context/event-emitter-provider.tsx` | 跨组件事件 |
+| Tanstack Query | `web/context/query-client.tsx` | 单例 QueryClient |
+| i18n | `web/app/components/provider/i18n-server.tsx` + `web/app/components/provider/i18n.tsx` | i18n SSR + 客户端 |
+| Theme | `web/app/layout.tsx` 内 `ThemeProvider` | next-themes |
+| Jotai | `web/app/layout.tsx` 内 `JotaiProvider` | jotai 作用域 |
+| Tooltip / Toast | `@langgenius/dify-ui` | 全局提示 |
+| Nuqs | `web/app/layout.tsx` 内 `NuqsAdapter` | URL 参数适配器 |
+
+## Hooks 清单
+
+| Hooks 类型 | 路径 |
+| --- | --- |
+| 通用 hooks | `web/hooks/`（如 `use-pay`、`use-breakpoints`、`use-document-title`、`use-query-params` 等） |
+| Feature hooks | `web/features/<domain>/hooks/`（如 tag-management） |
+| 业务 hooks | `web/app/components/<domain>/hooks/`（如 `web/app/components/apps/hooks/use-workflow-online-users.ts`） |
+
+## Storybook
+
+| 配置 | 命令 |
+| --- | --- |
+| 启动 | `pnpm -C web storybook`（默认 6006 端口） |
+| 构建 | `pnpm -C web storybook:build` |
+| 配置 | `web/.storybook/`（其下含 `preview.tsx` 与各类装饰器） |
+| 代表 stories | `packages/dify-ui/src/**/*.stories.tsx`、`web/app/components/base/**/*.stories.tsx`（如 `audio-gallery`、`emoji-picker`、`fullscreen-modal`、`form`、`linked-apps-panel`、`drawer-plus`、`prompt-editor` 等） |
+
+## 组件使用示例
+
+### 使用 dify-ui Tooltip
+
+```tsx
+import { Tooltip } from '@langgenius/dify-ui/tooltip'
+
+export function Example() {
+  return (
+    <Tooltip content="提示文案">
+      <button>hover me</button>
+    </Tooltip>
+  )
+}
+```
+
+### 使用 oRPC + 业务组件渲染列表
+
+```tsx
+import { useQuery } from '@tanstack/react-query'
+import { consoleQuery } from '@/service/client'
+import AppCard from '@/app/components/apps/app-card'
+
+export default function Apps() {
+  const { data } = useQuery(consoleQuery.apps.list.queryOptions({
+    input: { query: { page: 1, limit: 20 } },
+  }))
+  return data?.data.map(app => <AppCard key={app.id} app={app} />)
+}
+```
+
+### 使用 Lexical Prompt Editor
+
+```tsx
+import PromptEditor from '@/app/components/base/prompt-editor'
+
+<PromptEditor
+  value={value}
+  onChange={onChange}
+  variableBlock={{ variables: vars }}
+  contextBlock={{ datasets }}
+/>
+```
+
+## 设计令牌（与 Figma 协作）
+
+- 详见 `packages/dify-ui/AGENTS.md`：Figma 的 `--radius/*` token 与 Tailwind `rounded-*` 的映射关系（两侧 scale 相差一档）。
+- 颜色与圆角统一来自 `packages/dify-ui/src/themes/*.css`。
+
+## 测试约定
+
+- 详见 `web/docs/test.md`、`web/CLAUDE.md`、`frontend-testing` skill。
+- 优先 Vitest + React Testing Library；happy-dom 环境；`__tests__/` 与组件同目录。
+- 复杂组件先跑 `pnpm analyze-component <path>`，必要时先重构再测试。
+
+## 反模式
+
+| 反模式 | 替代 |
+| --- | --- |
+| 引入新的 overlay 实现 | 使用 `@langgenius/dify-ui/{tooltip,popover,dialog,drawer,toast,...}` |
+| 在业务组件内自己写 fetch + setState | 用 `useQuery(consoleQuery.x.y.queryOptions(...))` |
+| 自定义 Toast 实现 | 使用 `@langgenius/dify-ui/toast` 的 `ToastHost` + 触发 hook |
+| 直接修改全局 z-index | 遵循 dify-ui 的 `z-1002` / `z-1003` 分层 |
+| 在业务组件中硬编码字符串 | 走 `react-i18next`，资源放 `web/i18n/en-US/` |

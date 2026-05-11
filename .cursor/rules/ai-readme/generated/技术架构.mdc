@@ -1,0 +1,286 @@
+---
+description: '技术架构 - Dify 全栈分层架构、技术栈清单、外部依赖；当需要了解技术选型时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# 技术架构
+
+## 架构总览图
+
+```mermaid
+flowchart TB
+    subgraph Client["客户端"]
+        BrowserUI[控制台浏览器]
+        ShareApp[分享应用浏览器]
+        SDKClient[SDK 调用方<br>Node / PHP]
+    end
+
+    subgraph Frontend["前端 web/<br>Next.js 16 + React 19"]
+        Pages[App Router 页面]
+        Components[业务组件]
+        Contract[oRPC Contract]
+        StateLayer[状态层<br>TanStack Query / Zustand / Jotai / nuqs]
+    end
+
+    subgraph Backend["后端 api/<br>Flask 3 + DDD"]
+        ConsoleAPI[console API]
+        ServiceAPI[service_api]
+        WebAPI[web API]
+        InnerAPI[inner_api / mcp / trigger]
+        ServicesLayer[services 应用服务层]
+        CoreLayer[core 领域层<br>app / workflow / rag / agent / tools / plugin]
+        Repos[repositories]
+        Models[SQLAlchemy Models]
+    end
+
+    subgraph Async["异步任务"]
+        CeleryWorker[Celery Worker]
+        CeleryBeat[Celery Beat]
+    end
+
+    subgraph Infra["基础设施"]
+        PG[(PostgreSQL)]
+        Redis[(Redis)]
+        VDB[(向量数据库<br>30+ 后端)]
+        Storage[(对象存储<br>S3/OSS/COS/...)]
+        PluginD[Plugin Daemon]
+        Sandbox[Sandbox<br>代码执行沙箱]
+        SSRF[SSRF Proxy]
+        Nginx[Nginx 反向代理]
+    end
+
+    subgraph Observability["可观测性"]
+        OTel[OpenTelemetry]
+        Sentry[Sentry]
+        Tracers[(Langfuse / Opik / Phoenix /<br>LangSmith / MLflow / Aliyun /<br>Tencent / Weave)]
+    end
+
+    BrowserUI --> Nginx
+    ShareApp --> Nginx
+    SDKClient -->|Service API| Nginx
+    Nginx --> Pages
+    Nginx --> ConsoleAPI
+    Nginx --> ServiceAPI
+    Nginx --> WebAPI
+
+    Pages --> Components --> Contract --> StateLayer
+    Contract -->|HTTP / oRPC| ConsoleAPI
+
+    ConsoleAPI --> ServicesLayer
+    ServiceAPI --> ServicesLayer
+    WebAPI --> ServicesLayer
+    InnerAPI --> ServicesLayer
+    ServicesLayer --> CoreLayer
+    ServicesLayer --> Repos
+    ServicesLayer --> CeleryWorker
+    CoreLayer --> Models
+    CoreLayer --> PluginD
+    CoreLayer --> Sandbox
+    CoreLayer --> SSRF
+    Repos --> Models
+    Models --> PG
+
+    CeleryWorker --> Redis
+    CeleryWorker --> Models
+    CeleryWorker --> CoreLayer
+    CeleryBeat --> CeleryWorker
+    CoreLayer --> VDB
+    CoreLayer --> Storage
+    CoreLayer --> Tracers
+    Backend --> OTel
+    Backend --> Sentry
+```
+
+## 分层架构说明
+
+### 后端（DDD + Clean Architecture）
+
+| 层 | 路径 | 职责 | 不应做 |
+| --- | --- | --- | --- |
+| 入口 / Bootstrap | `api/app.py`、`api/app_factory.py`、`api/dify_app.py`、`api/celery_entrypoint.py` | 创建 Flask app、注册扩展、加载蓝图、启动 Celery | 业务逻辑 |
+| 控制器 Controller | `api/controllers/{console,service_api,web,files,inner_api,mcp,trigger}/` | 请求解析（Pydantic）、调用服务、序列化响应 | 业务逻辑、SQL |
+| 应用服务 Service | `api/services/` | 用例编排、事务边界、副作用显式化 | 处理 HTTP、直接拼 SQL |
+| 领域核心 Core | `api/core/{app,workflow,rag,agent,tools,plugin,...}/` | 业务规则、领域模型、流程编排 | 直接依赖 Flask、数据库会话 |
+| 仓储 Repository | `api/repositories/`、`api/core/repositories/` | 大表读写抽象（如工作流执行） | 业务逻辑 |
+| 模型 Model | `api/models/` | SQLAlchemy 表结构、关系、约束 | 业务流程 |
+| 异步任务 Task | `api/tasks/`、`api/schedule/` | Celery worker / beat 任务 | 同步阻塞业务 |
+| 扩展 Extension | `api/extensions/` + `api/extensions/storage/` | Flask 扩展、第三方集成、可插拔存储 | 业务逻辑 |
+| 工作区 Workspace 包 | `api/providers/vdb/*`、`api/providers/trace/*` | 向量库 / 追踪后端的可选插件 | 跨适配器横向调用 |
+
+### 前端
+
+| 层 | 路径 | 职责 |
+| --- | --- | --- |
+| 路由 / 页面 | `web/app/(commonLayout)`、`web/app/(shareLayout)` 等路由组 | App Router 页面、布局、metadata |
+| 业务组件 | `web/app/components/{apps,workflow,base,explore,...}/` | 业务域 UI 与交互逻辑 |
+| 通用组件 | `packages/dify-ui/` | overlay / portal / 基础原语 |
+| 状态层 | `@tanstack/react-query`（服务端缓存）+ `zustand`/`jotai`（客户端状态）+ `nuqs`（URL 状态） | 数据获取、客户端状态、URL 状态分工 |
+| Contract / 调用 | `web/contract/`、`packages/contracts/` + `web/service/` | oRPC contract（首选）+ 旧版 service-\*（迁移目标） |
+| Hooks | `web/hooks/` + 各业务 `hooks/` | 复用 React hooks |
+| i18n | `web/i18n/`、`web/i18n-config/` | 多语言资源（all 业务字符串走 `web/i18n/en-US/`） |
+| 配置 | `web/env.ts`、`web/config/`、`web/constants/` | 环境变量与常量 |
+| 构建工具 | `web/next.config.ts`、`web/vite.config.ts`、`web/plugins/vite/` | Next + Vinext + Vite 插件 |
+
+### 部署
+
+| 组件 | 路径 | 说明 |
+| --- | --- | --- |
+| 主 compose | `docker/docker-compose.yaml` | API + Web + Worker + Beat + DB + Redis + Sandbox + SSRF + Plugin Daemon + Nginx 等 |
+| 中间件 compose | `docker/docker-compose.middleware.yaml` | 仅启动 DB / Redis / Weaviate / Sandbox / SSRF（配合源码模式使用） |
+| 模板 compose | `docker/docker-compose-template.yaml` + `docker/generate_docker_compose` | 按 profile 动态拼装 compose |
+| Nginx | `docker/nginx/` | 反向代理 + 路由分发 |
+| SSRF Proxy | `docker/ssrf_proxy/squid.conf.template` | 出网代理（防 SSRF） |
+| Sandbox | 由 dify-sandbox 镜像提供 | 安全代码执行（Python / Node） |
+
+## 核心技术栈
+
+### 后端
+
+| 名称 | 版本范围 | 作用 |
+| --- | --- | --- |
+| Python | `~=3.12.0` | 运行时（pyproject.toml 强约束） |
+| Flask | `>=3.1.3,<4.0.0` | Web 框架 |
+| flask-cors | `>=6.0.2` | 跨域 |
+| flask-login | `>=0.6.3,<1.0.0` | 登录会话 |
+| flask-migrate | `>=4.1.0,<5.0.0` | 数据库迁移（Alembic 包装） |
+| flask-restx | `>=1.3.2,<2.0.0` | API 资源序列化 |
+| flask-orjson | `>=2.0.0,<3.0.0` | orjson 响应 |
+| flask-compress | `>=1.24,<2.0.0` | gzip 压缩 |
+| fastopenapi | `~=0.7.0` | 自动 OpenAPI 规范生成（FastAPI 风格） |
+| Celery | `>=5.6.3` | 异步任务 |
+| Redis（hiredis） | `>=7.4.0` | 缓存 + Celery broker + 在线协作状态 |
+| psycopg2-binary | `>=2.9.12` | PostgreSQL 驱动 |
+| psycogreen | `>=1.0.2` | 配合 gevent 协程 |
+| gevent / gevent-websocket | `>=26.4.0` / `>=0.10.1` | 协程并发 + WebSocket 支持 |
+| python-socketio | `>=5.13.0` | Socket.IO 服务器（工作流协作） |
+| gunicorn | `>=25.3.0` | 生产 WSGI |
+| Pydantic v2 | 间接 | DTO / 校验（项目约定 v2 风格） |
+| boto3 | `>=1.43.3` | AWS / S3 兼容存储 |
+| sendgrid / resend | `>=6.12.5` / `>=2.27.0,<3.0.0` | 邮件发送 |
+| graphon | `~=0.2.2` | 图算法 |
+| sseclient-py | `>=1.8.0` | SSE 客户端 |
+| httpx[socks] / httpx-sse | `>=0.28.1,<1.0.0` / `~=0.4.0` | HTTP 客户端 + SSE |
+| google-cloud-aiplatform | `>=1.149.0,<2.0.0` | GCP Vertex AI |
+| google-api-python-client | `>=2.195.0` | Google API |
+| azure-identity | `>=1.25.3,<2.0.0` | Azure 鉴权 |
+| aliyun-log-python-sdk | `>=0.9.44,<1.0.0` | 阿里云日志 |
+| readabilipy | `>=0.3.0,<1.0.0` | 网页正文抽取 |
+| bleach | `>=6.3.0` | HTML 清理 |
+| croniter | `>=6.2.2` | Cron 解析 |
+| gmpy2 | `>=2.3.0` | 高精度数学 |
+| json-repair | `~=0.59.4` | LLM JSON 修复 |
+| OpenTelemetry instrumentations | `>=0.62b*,<1.0.0` | Flask / Celery / SQLAlchemy / Redis / httpx 自动埋点 |
+| opentelemetry-propagator-b3 | `>=1.41.1,<2.0.0` | B3 上下文传播 |
+
+#### 后端可选 / 插件依赖（uv 子包）
+
+| 类别 | 子包目录 | 适配器列表 |
+| --- | --- | --- |
+| 向量数据库 | `api/providers/vdb/*` | alibabacloud-mysql / analyticdb / baidu / chroma / clickzetta / couchbase / elasticsearch / hologres / huawei-cloud / iris / lindorm / matrixone / milvus / myscale / oceanbase / opengauss / opensearch / oracle / pgvecto-rs / pgvector / qdrant / relyt / tablestore / tencent / tidb-on-qdrant / tidb-vector / upstash / vastbase / vikingdb / weaviate（共 30 个） |
+| 链路追踪 | `api/providers/trace/*` | aliyun / arize-phoenix / langfuse / langsmith / mlflow / opik / tencent / weave |
+| 对象存储 | `api/extensions/storage/` + dependency-group `storage` | azure-storage-blob / bce-python-sdk / cos-python-sdk-v5 / esdk-obs-python / google-cloud-storage / opendal / oss2 / supabase / tos |
+| 工具增强 | dependency-group `tools` | cloudscraper / nltk |
+
+### 前端
+
+| 名称 | 引用方式 | 作用 |
+| --- | --- | --- |
+| Node.js | engines: `^22.22.1` | 运行时 |
+| pnpm | `pnpm@11.0.8` | 包管理（preinstall 强校验） |
+| Next.js | `web/package.json` catalog `next` | App Router、路由、SSR |
+| React / React DOM | catalog `react`、`react-dom` | UI |
+| TypeScript | catalog `typescript` + `@dify/tsconfig` | 类型系统（严格模式） |
+| Vinext | catalog `vinext` | Vite 风格 Next 开发服务器（默认 dev） |
+| Vite + vite-plus | catalog `vite`、`vite-plus` | Vite 引擎 + 测试运行器 |
+| Vitest + happy-dom | catalog `vitest`、`happy-dom` | 单元/集成测试 + 浏览器环境 |
+| Storybook | catalog `storybook` + `@storybook/nextjs-vite` | UI 组件预览 |
+| TanStack Query | catalog `@tanstack/react-query` + devtools | 服务端状态缓存 |
+| TanStack Form | catalog `@tanstack/react-form` + devtools | 表单引擎 |
+| TanStack Virtual | catalog `@tanstack/react-virtual` | 虚拟列表 |
+| TanStack Hotkeys | catalog `@tanstack/react-hotkeys` | 键盘快捷键 |
+| oRPC | catalog `@orpc/client`、`@orpc/contract`、`@orpc/openapi-client`、`@orpc/tanstack-query` | 类型安全 RPC |
+| Zustand / Jotai / nuqs / use-context-selector | catalog | 客户端状态、原子状态、URL 状态 |
+| Lexical 编辑器 | catalog `lexical` + `@lexical/*` | Prompt 富文本编辑器 |
+| ReactFlow | catalog `reactflow` | 工作流画布 |
+| Monaco Editor | catalog `@monaco-editor/react` | 代码编辑器 |
+| Mermaid / abcjs | catalog `mermaid`、`abcjs` | 流程图与乐谱渲染 |
+| ECharts + react | catalog `echarts`、`echarts-for-react` | 图表 |
+| Tailwind CSS v4 | catalog `tailwindcss` + `@tailwindcss/postcss` + `@tailwindcss/vite` | 原子化样式 |
+| Headless UI / Base UI / floating-ui / Heroicons / Remixicon / Iconify | catalog | UI 原语与图标 |
+| react-i18next + i18next-resources-to-backend + @formatjs/intl-localematcher | catalog | i18n |
+| dayjs / decimal.js | catalog | 日期与数字 |
+| dompurify / streamdown / shiki / hast-util-to-jsx-runtime / remark-\* | catalog | Markdown / 代码高亮 / 流式渲染 |
+| socket.io-client | catalog | 工作流协作 / 实时通信 |
+| loro-crdt | catalog | CRDT 多人协作 |
+| @sentry/react | catalog | 前端 Sentry |
+| @amplitude/analytics-browser + plugin-session-replay-browser | catalog | 行为埋点（CE 通常关闭） |
+| html-to-image / qrcode.react / sharp | catalog | 图像生成 |
+| ky / qs / negotiator | catalog | HTTP / 查询字符串 / 内容协商 |
+| zod | catalog | 运行时校验 |
+| code-inspector-plugin / vite-plugin-inspect / @tanstack/react-devtools | catalog | 开发期调试 |
+| concurrently | catalog | 多进程开发命令 |
+| eslint + @antfu/eslint-config + 系列插件 | catalog | Lint |
+| tsslint + @tsslint/cli | catalog | TS 自定义规则 |
+| knip | catalog | 死代码检测 |
+
+### Packages
+
+| 包 | 类型 | 关键内容 |
+| --- | --- | --- |
+| `@dify/contracts` | workspace | openapi-ts 生成的 oRPC + Zod contract |
+| `@langgenius/dify-ui` | workspace | overlay / portal / 通用 UI（z-1002 / z-1003 分层） |
+| `@dify/iconify-collections` | workspace | 自定义图标集合 |
+| `@langgenius/dev-proxy` | workspace | 本地开发反向代理 |
+| `@dify/tsconfig` | workspace | 共享 tsconfig 基线 |
+| `migrate-no-unchecked-indexed-access` | workspace | TS 严格索引迁移工具 |
+
+## 外部组件清单
+
+| 组件 | 默认实现 | 配置位置 |
+| --- | --- | --- |
+| 关系数据库 | PostgreSQL（含 pgvector / pgvecto-rs 可选） | `api/configs/middleware/`、`docker/.env.*` |
+| 缓存 / 队列 broker / 协作状态 | Redis | 同上 |
+| 默认向量数据库 | Weaviate | 同上 |
+| 对象存储 | 本地存储；可切 S3 / OSS / COS / OBS / GCS / Azure / Supabase / OpenDAL / TOS | `api/extensions/storage/` |
+| Sandbox | Dify Sandbox 镜像 | `docker/.env.example` |
+| Plugin Daemon | Dify Plugin Daemon 镜像 | `docker/.env.example` |
+| SSRF 出网 | Squid（`docker/ssrf_proxy`） | 同上 |
+| Nginx 反代 | `docker/nginx/` | 同上 |
+| 邮件 | SendGrid / Resend / SMTP（可切） | `api/extensions/ext_mail.py` |
+| 链路追踪 | OTel + 各 trace 插件 | `api/extensions/ext_otel.py` + `providers/trace/*` |
+| Sentry | 可选 | `api/extensions/ext_sentry.py` + 前端 `instrumentation-client.ts` |
+
+## 开发工具链
+
+| 类型 | 工具 | 备注 |
+| --- | --- | --- |
+| 后端格式化 / Lint | Ruff（`api/.ruff.toml`） | `make format` / `make lint` |
+| 后端类型检查 | basedpyright + pyrefly | `make type-check`、`uv run basedpyright .` |
+| 后端测试 | pytest + pytest-mock + pytest-env + pytest-cov + pytest-benchmark + pytest-timeout + pytest-xdist + testcontainers | `uv run pytest` |
+| 后端依赖 | uv | `uv sync --group dev`、`uv run` |
+| 后端 Import 健康度 | import-linter | 已纳入 `dev` 依赖 |
+| 前端 Lint | eslint（@antfu 配置）+ tsslint + knip | `pnpm lint:fix` |
+| 前端类型检查 | `tsgo`（基于 @typescript/native-preview） | `pnpm -C web type-check` |
+| 前端测试 | Vitest + RTL + happy-dom + jest-dom matchers | `pnpm -C web test`（实际通过 `vp test` 执行） |
+| 前端 Storybook | Storybook + @storybook/nextjs-vite | `pnpm -C web storybook` |
+| 前端启动 | `./dev/start-web` 默认走 vinext；可 `NEXT_USE_NEXT_DEV=true` 切回 next dev --webpack | 详见 `docs/zh-CN/local-dev.md` |
+| 包管理 | pnpm（workspace + catalog）+ uv（workspace + dependency-groups） | 根目录 `pnpm-workspace.yaml`，后端 `pyproject.toml` |
+| Docker 编排 | docker compose | `docker/dify-compose` 包装脚本 |
+| AI 规则 | `.cursor/rules/` + `.agents/skills/` + `.claude/` | 多套并存 |
+
+## 设计约束
+
+| 约束 | 说明 | 来源 |
+| --- | --- | --- |
+| DDD 与分层边界 | controller → service → core → repository / model；不得跨层直连 | `AGENTS.md`、`api/AGENTS.md` |
+| 多租户 | `tenant_id` 必须贯穿到所有共享资源访问 | `api/AGENTS.md` |
+| 配置统一入口 | 后端禁止直读 `os.environ`，统一走 `configs.dify_config` | `api/AGENTS.md` |
+| 工具链 | 后端使用 `uv run --project api`，避免 Agent 启动长进程 | `AGENTS.md`、`api/AGENTS.md` |
+| 前端 i18n | 所有面向用户字符串必须走 `web/i18n/en-US/`，禁止硬编码 | `AGENTS.md` |
+| 前端 overlay | 新代码只能用 `@langgenius/dify-ui/*`，不得新增 `@/app/components/base/*` 旧 overlay | `web/AGENTS.md`、`packages/dify-ui/README.md` |
+| Query / Mutation | 优先使用 `consoleQuery` / `marketplaceQuery` 的 `queryOptions` / `mutationOptions`；服务包装迁移到 contract | `web/AGENTS.md` + frontend-query-mutation skill |
+| 类型严格 | 后端避免 `Any`；前端避免 `any`，依赖严格 ESLint + tsslint | `AGENTS.md`、`api/AGENTS.md` |
+| 测试优先 | TDD：red → green → refactor；后端 pytest；前端 Vitest + RTL | `AGENTS.md` |
+| 文档同步 | 后端必须维护 module/class/function docstring，与代码一致 | `api/AGENTS.md` |

@@ -1,0 +1,361 @@
+---
+description: '核心流程 - Dify 关键业务流程、调用链、数据流转；当需要理解系统运作时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# 核心流程
+
+## 请确认：这是不是你们的"核心流程"
+
+> ⚠️ 重要：本仓库 `.cursor/rules/ai-readme/备忘.md` 中"核心流程（必须确认）"小节当前为空（TODO 未填）。
+>
+> 以下流程是 AI 基于代码仓事实（控制器、服务、`api/core/{app,workflow,rag,agent}` 入口、`api/tasks/`、`docker-compose.yaml` 等）推断出的"候选 P0/P1"。请你按团队认知校对，并把最终结论写到 `备忘.md`，下次执行 `ai-readme` 会以备忘为准。
+
+需要你确认的问题：
+
+1. 候选 P0 流程是否符合你们认知？是否有遗漏？是否有应该降级到 P1/P2 的项？
+2. 入口清单是否准确？是否有未列出的对外入口（HTTP / Webhook / Celery 队列 / SocketIO）？
+3. 是否有必须体现的关键状态机或副作用？
+4. 是否有必须体现的异常 / 降级路径？
+5. 哪些不应该写进"核心流程"？
+
+确认后，请把"P0 / P1 / 不要写"清单填进 `备忘.md`。
+
+## 流程架构图
+
+```mermaid
+flowchart TB
+    subgraph Inbound["对外入口"]
+        ConsoleHTTP[控制台 HTTP<br>/console/api]
+        ServiceHTTP[Service API<br>/api]
+        WebHTTP[WebApp API<br>/web]
+        Webhook[Webhook 触发器]
+        Schedule[计划任务<br>Celery Beat]
+        SocketIO[Socket.IO<br>工作流协作]
+        InnerHTTP[Inner API]
+        MCPInbound[MCP]
+    end
+
+    subgraph SyncBiz["同步业务"]
+        AppGen[app_generate_service<br>应用生成入口]
+        WorkflowSvc[workflow_service<br>工作流服务]
+        RagPipelineSvc[rag_pipeline 服务]
+        DatasetSvc[dataset_service / knowledge_service]
+        Account[account_service]
+    end
+
+    subgraph CoreApp["core/app + core/workflow"]
+        ChatApp[Chat App Runner]
+        AdvChatApp[Advanced Chat App Runner]
+        WorkflowApp[Workflow App Runner]
+        CompletionApp[Completion App Runner]
+        WorkflowEngine[工作流引擎<br>core/workflow]
+    end
+
+    subgraph CoreAux["核心能力"]
+        AgentRunner[core/agent<br>CoT / Function Call]
+        Tools[core/tools<br>内置 + API + MCP + Workflow as Tool]
+        Plugin[core/plugin<br>Plugin Daemon]
+        Memory[core/memory]
+        Prompt[core/prompt]
+        Moderation[core/moderation]
+        ModelMgr[model_manager / provider_manager]
+        Sandbox[Sandbox 代码执行]
+        SSRF[SSRF Proxy 出网]
+    end
+
+    subgraph RAG["RAG 流水线"]
+        Extract[core/rag/extractor]
+        Split[core/rag/splitter]
+        Embed[core/rag/embedding]
+        Index[indexing_runner]
+        Retrieval[core/rag/retrieval]
+    end
+
+    subgraph Async["Celery 异步"]
+        QPipe[pipeline / priority_pipeline]
+        QDataset[dataset / dataset_summary]
+        QWorkflow[workflow / workflow_storage / workflow_based_app_execution]
+        QSchedule[schedule_poller / schedule_executor]
+        QTrigger[triggered_workflow_dispatcher / trigger_refresh_executor]
+        QMail[mail / ops_trace / app_deletion / plugin / conversation / retention]
+    end
+
+    subgraph Stores["持久化"]
+        PG[(PostgreSQL)]
+        Redis[(Redis)]
+        VDB[(向量数据库)]
+        Object[(对象存储)]
+    end
+
+    subgraph Obs["可观测"]
+        Trace[(Langfuse / Opik / Phoenix /<br>LangSmith / MLflow / 等)]
+        OTel[OTel Collector]
+    end
+
+    ConsoleHTTP --> AppGen
+    ServiceHTTP --> AppGen
+    WebHTTP --> AppGen
+    SocketIO --> WorkflowSvc
+    Webhook --> WorkflowSvc
+    Schedule --> WorkflowSvc
+    InnerHTTP --> WorkflowSvc
+    MCPInbound --> Tools
+
+    AppGen --> ChatApp
+    AppGen --> AdvChatApp
+    AppGen --> WorkflowApp
+    AppGen --> CompletionApp
+    WorkflowSvc --> WorkflowEngine
+    RagPipelineSvc --> Index
+
+    ChatApp --> Memory
+    ChatApp --> Prompt
+    ChatApp --> Moderation
+    ChatApp --> ModelMgr
+    ChatApp --> Tools
+    ChatApp --> AgentRunner
+    AdvChatApp --> WorkflowEngine
+    WorkflowApp --> WorkflowEngine
+    CompletionApp --> ModelMgr
+
+    AgentRunner --> Tools
+    AgentRunner --> ModelMgr
+    Tools --> Plugin
+    Tools --> Sandbox
+    Tools --> SSRF
+    WorkflowEngine --> Plugin
+    WorkflowEngine --> ModelMgr
+    WorkflowEngine --> Tools
+    WorkflowEngine --> Retrieval
+    WorkflowEngine --> Sandbox
+
+    Index --> Extract --> Split --> Embed --> VDB
+    Retrieval --> VDB
+    Retrieval --> ModelMgr
+
+    DatasetSvc --> QPipe
+    DatasetSvc --> QDataset
+    WorkflowSvc --> QWorkflow
+    Schedule --> QSchedule
+    Schedule --> QTrigger
+
+    AppGen --> PG
+    WorkflowEngine --> PG
+    Index --> PG
+    Memory --> Redis
+    WorkflowSvc --> Redis
+    AppGen --> Object
+    Index --> Object
+
+    ChatApp --> Trace
+    WorkflowEngine --> Trace
+    AgentRunner --> Trace
+    Index --> Trace
+    AppGen --> OTel
+    WorkflowEngine --> OTel
+```
+
+## 候选核心流程清单
+
+### P0 候选（业务主路径）
+
+| 流程 | 入口 | 关键模块 | 关键点 |
+| --- | --- | --- | --- |
+| 应用对话生成（Chat / Agent / Completion） | `controllers/console/app/completion.py`、`controllers/service_api/app/completion.py`、`controllers/web/completion.py` → `services/app_generate_service.py` | `core/app/apps/{chat,advanced_chat,completion,agent_chat}/`、`core/agent/`、`core/prompt/`、`core/memory/`、`core/moderation/` | SSE 流式输出、租户隔离、对话历史、托管审核 |
+| 工作流执行（Advanced Chat / Workflow App） | `controllers/console/app/workflow.py`、`controllers/console/app/workflow_run.py`、`controllers/service_api/app/workflow.py`、`controllers/web/workflow.py` → `services/workflow_service.py` + `services/workflow_run_service.py` → `core/workflow/` | `core/workflow/nodes/*`、`core/app/apps/advanced_chat/*`、`api/tasks/async_workflow_tasks.py`、`api/tasks/workflow_node_execution_tasks.py` | 节点编排、变量传递、人工输入暂停/恢复、运行回放、事件快照、Celery 异步分发 |
+| RAG 文档索引 | `controllers/console/datasets/datasets_document.py` → `services/dataset_service.py` → `services/document_indexing_proxy/*` → `tasks/document_indexing_task.py` 等 → `core/indexing_runner.py` → `core/rag/{extractor,splitter,embedding,index_processor}/` | 多种 vdb provider | 异步索引、增量更新、限流、向量库写入 |
+| RAG 检索（命中测试 / Workflow 节点） | `controllers/console/datasets/hit_testing.py` → `services/hit_testing_service.py` → `core/rag/retrieval/` + `core/rag/datasource/retrieval_service.py` | `core/rag/retrieval/dataset_retrieval.py`、`core/rag/data_post_processor/` | 多路召回、重排、得分阈值 |
+| Agent 调用工具 | `core/app/apps/agent_chat/*` → `core/agent/{cot_agent_runner,cot_completion_agent_runner,base_agent_runner}.py` → `core/tools/{builtin_tool, mcp_tool, workflow_as_tool, ...}/` → `core/plugin/` | `core/callback_handler/agent_tool_callback_handler.py` | 工具注册、调用、回调与失败重试 |
+| 文件上传与预览 | `controllers/files/upload.py`、`controllers/files/image_preview.py`、`controllers/common/file_response.py` → `services/file_service.py` + `services/attachment_service.py` → `extensions/ext_storage.py` | 多云存储 | 鉴权、签名 URL、限制 |
+| 账户与租户 | `controllers/console/auth/{login,oauth,oauth_server,activate,email_register,forgot_password,data_source_oauth,data_source_bearer_auth}.py` → `services/account_service.py`、`services/api_token_service.py`、`services/webapp_auth_service.py` | `models/account.py` | 多租户、SSO、OAuth、邮件验证 |
+
+### P1 候选
+
+| 流程 | 入口 | 备注 |
+| --- | --- | --- |
+| 触发器：Webhook | `controllers/trigger/webhook.py` → `services/trigger/webhook_service.py` → `core/workflow` | 工作流外部触发 |
+| 触发器：Schedule | `services/trigger/schedule_service.py` + Celery Beat (`schedule/`) | 定时执行 |
+| 触发器订阅生命周期 | `controllers/console/workspace/trigger_providers.py` + `services/trigger/trigger_subscription_*service.py` | OAuth / Verify / Build |
+| 插件安装与升级 | `controllers/console/workspace/plugin.py` → `services/plugin/{plugin_service,plugin_migration,plugin_auto_upgrade_service,oauth_service}.py` → Plugin Daemon | 含 marketplace 安装 |
+| 模型供应商 / 负载均衡 | `controllers/console/workspace/{model_providers,models,load_balancing_config}.py` → `services/model_provider_service.py`、`services/model_load_balancing_service.py` | 多供应商、配额、Cooldown |
+| 工作流多人协作 | `services/workflow_collaboration_service.py` + Socket.IO + Redis（`api/extensions/ext_socketio.py`、`controllers/console/socketio/workflow.py`） | CRDT / 在线用户 |
+| 知识库 DSL 导入 | `services/app_dsl_service.py`、`services/rag_pipeline/rag_pipeline_dsl_service.py` | YAML 解析与版本兼容 |
+| 推荐应用 | `services/recommended_app_service.py` + `services/recommend_app/{buildin,database,remote}` | 多源加载 |
+| 应用 DSL 导入 / 复制 | `controllers/console/app/app_import.py` + `services/app_dsl_service.py` | 应用克隆 |
+| 标签 / 标注 | `services/tag_service.py`、`services/annotation_service.py` | 含 batch 任务 |
+| 计费 / 配额 / 积分 | `services/billing_service.py`、`services/quota_service.py`、`services/credit_pool_service.py` | CE 通常关闭 |
+
+### P2 候选 / 不建议写成"核心流程"
+
+> 待你确认。可能落入 P2 的：邮件模板、API Token 自助、操作日志、运营辅助接口、企业版同步等。
+
+## 入口清单
+
+### HTTP 入口分组（按 controllers/）
+
+| 分组 | 路径前缀 | 典型用途 |
+| --- | --- | --- |
+| Console | `/console/api/*`（`api/controllers/console/`） | 控制台 API（应用、数据集、租户、计费、模型、工作流、触发器等） |
+| Service API | `/api/*`（`api/controllers/service_api/`） | 对外开放 API（终端用户使用） |
+| WebApp | `/web/*`（`api/controllers/web/`） | WebApp（分享应用 / 嵌入聊天）使用 |
+| Files | `/files/*`（`api/controllers/files/`） | 文件上传/预览 |
+| Inner API | `/inner/api/*`（`api/controllers/inner_api/`） | 同集群内部 API |
+| MCP | `/mcp/*`（`api/controllers/mcp/`） | MCP 协议 |
+| Trigger | `/trigger/*`（`api/controllers/trigger/`） | Webhook 触发器 |
+
+### 异步 / 实时 / 调度入口
+
+| 入口 | 来源 | 说明 |
+| --- | --- | --- |
+| Celery Worker | `api/celery_entrypoint.py` + `api/tasks/*` | 通过 `EDITION` 选择默认队列 |
+| Celery Beat | `api/celery_entrypoint.py` + `api/schedule/*` | 计划任务发布器 |
+| Socket.IO | `api/extensions/ext_socketio.py` + `api/controllers/console/socketio/workflow.py` | 工作流协作 |
+| Plugin Daemon | `api/core/plugin/impl/*` 通过 HTTP 客户端调用 dify-plugin-daemon | 插件运行时 |
+
+## 调用链分析
+
+### Chat 应用对话（同步 SSE，简化版）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Browser
+    participant Console as controllers/console/app/completion.py
+    participant AppGen as services/app_generate_service.py
+    participant ChatApp as core/app/apps/chat/app_runner.py
+    participant Mod as core/moderation
+    participant Mem as core/memory
+    participant Prompt as core/prompt
+    participant Model as core/model_manager
+    participant Tools as core/tools
+    participant DB as PostgreSQL
+    participant Trace as ops 链路追踪
+
+    Browser->>Console: POST /chat-messages (SSE)
+    Console->>AppGen: generate(app, user, query, ...)
+    AppGen->>ChatApp: run(app_config, conversation, query)
+    ChatApp->>Mod: pre_check(query)
+    ChatApp->>Mem: load_history(conversation)
+    ChatApp->>Prompt: build_messages(query, history, system)
+    ChatApp->>Model: stream_chat(messages)
+    loop streaming
+        Model-->>ChatApp: token chunks
+        ChatApp-->>Console: yield SSE event
+        Console-->>Browser: data: {...}
+    end
+    ChatApp->>DB: persist message + token usage
+    ChatApp->>Trace: emit trace
+```
+
+### Workflow 执行（高度简化）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Trigger as 控制台 / WebApp / Webhook
+    participant WorkflowSvc as services/workflow_service
+    participant Engine as core/workflow
+    participant Node as 节点 (LLM/Tool/Knowledge/...)
+    participant Queue as Celery worker (workflow*)
+    participant DB as PostgreSQL
+    participant Plugin as Plugin Daemon
+    participant Sandbox
+
+    Trigger->>WorkflowSvc: run(workflow_id, inputs)
+    WorkflowSvc->>Engine: build run from graph + variables
+    Engine->>DB: persist WorkflowRun
+    loop 每个节点
+        Engine->>Node: execute(state)
+        alt 节点需要外部能力
+            Node->>Plugin: invoke plugin
+            Node->>Sandbox: run code
+        end
+        Node-->>Engine: outputs / events
+        Engine->>DB: persist NodeExecution
+    end
+    alt 异步分发
+        Engine->>Queue: dispatch（async_workflow_tasks）
+    end
+    Engine-->>WorkflowSvc: stream events
+    WorkflowSvc-->>Trigger: SSE / Socket.IO
+```
+
+### RAG 索引（异步）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Console as controllers/console/datasets/datasets_document
+    participant DatasetSvc as services/dataset_service
+    participant Proxy as services/document_indexing_proxy
+    participant Worker as Celery (dataset / pipeline)
+    participant Runner as core/indexing_runner
+    participant Extract as core/rag/extractor
+    participant Split as core/rag/splitter
+    participant Embed as core/rag/embedding
+    participant VDB as 向量数据库
+
+    Console->>DatasetSvc: 上传 / 索引文档
+    DatasetSvc->>Proxy: enqueue indexing
+    Proxy->>Worker: send to "dataset" / "pipeline" queue
+    Worker->>Runner: run(document)
+    Runner->>Extract: 抽取
+    Runner->>Split: 切分
+    Runner->>Embed: 向量化
+    Embed->>VDB: upsert vectors
+    Runner-->>Worker: status / metrics
+```
+
+## 数据流转说明
+
+| 流程 | 输入 | 主要中间数据 | 输出 / 落地 |
+| --- | --- | --- | --- |
+| Chat 应用 | 用户 query + 历史 + 应用配置 | prompt messages、模型流式 chunk | DB 中 `Conversation` / `Message`、token 使用、trace |
+| Workflow | 起点 inputs + 触发上下文 | 节点 outputs、变量池、events | `WorkflowRun` / `NodeExecution` / `event_snapshot` / 输出文件 |
+| RAG 索引 | 原始文档 / 网页 / 数据源 | 抽取文本、切片、向量 | `Dataset/Document/Segment` 行 + 向量库条目 + 对象存储原文 |
+| RAG 检索 | 查询 query + dataset 配置 | 召回候选、重排得分 | 检索结果（节点输入或命中测试响应） |
+| Agent | 任务描述 + 工具列表 | tool calls、observations | 最终回答 + 工具调用日志 + trace |
+
+## 状态流转
+
+| 业务对象 | 状态机来源 | 关键状态 |
+| --- | --- | --- |
+| `WorkflowRun` | `models/workflow.py` + `core/workflow/*` | running / paused / succeeded / failed / stopped |
+| `NodeExecution` | 同上 | pending / running / succeeded / failed / retrying |
+| `Document` 索引 | `models/dataset.py` + `core/indexing_runner.py` | waiting / parsing / cleaning / splitting / indexing / completed / paused / error |
+| `Conversation` | `models/model.py` | normal / archived（视实现） |
+| `Plugin` 安装 | `services/plugin/*` | pending / installing / installed / failed |
+| `TriggerSubscription` | `services/trigger/trigger_subscription_*` | builder pending / building / verified / failed |
+| `Account` / `Tenant` | `models/account.py` + `services/account_service.py` | pending / active / banned 等 |
+
+## 异常 / 降级处理
+
+| 类别 | 模块 | 说明 |
+| --- | --- | --- |
+| 模型调用异常 | `core/errors/`、`services/errors/llm.py` | 重试、限流、降级模型 |
+| 内容审核拒绝 | `core/moderation/` + `services/errors/` | 拦截响应 |
+| 限流 / 配额 | `services/quota_service.py`、`services/billing_service.py` | 软/硬限制 |
+| Sandbox 异常 | `core/helper/code_executor/code_executor.py` | 超时、内存、安全策略 |
+| 插件 daemon 不可用 | `core/plugin/impl/exc.py`、`core/plugin/endpoint/exc.py` | 失败回填、断路 |
+| Webhook 异常 | `services/trigger/trigger_request_service.py` | 重试、签名校验失败 |
+| 工作流节点失败 | `core/workflow/nodes/agent/exceptions.py`、`core/workflow/nodes/*` | 节点级错误捕获 + 失败分支 |
+| 异步任务失败 | Celery 重试 + `tasks/*_proxy.py` | 重试策略与隔离队列 |
+| HTTP 错误 | `controllers/*/error.py` + `controllers/common/errors.py` | 域异常 → HTTP 响应 |
+
+## 性能关键点
+
+| 关键点 | 模块 | 说明 |
+| --- | --- | --- |
+| LLM 流式吞吐 | `core/app/task_pipeline/*`、`core/llm_generator/*` | 必须保持 SSE 低延迟 |
+| 工作流大图执行 | `core/workflow/*`、`core/app/apps/advanced_chat/*` | 节点并行、变量池效率 |
+| RAG 大文档索引 | `core/indexing_runner.py`、`core/rag/index_processor/*` | 批处理、限流 |
+| 向量检索 | `core/rag/retrieval/dataset_retrieval.py` + 各 vdb provider | 召回延迟、重排成本 |
+| 数据库高并发 | `extensions/ext_database.py`、`core/repositories/*` | 连接池、`tenant_id` 索引 |
+| Redis | `extensions/ext_redis.py`、协作模块 | 在线用户、队列、限流 |
+| 插件 daemon 调用 | `core/plugin/impl/*` | 网络延迟、超时控制 |
+| 出网请求 | `core/helper/ssrf_proxy.py` + `core/helper/http_client_pooling.py` | SSRF 防护、连接复用 |
+
+> 以上候选请按团队认知校对，并把结论写到 `备忘.md` 的"核心流程（必须确认）"小节，避免每次重新生成都跑偏。

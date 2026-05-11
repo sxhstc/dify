@@ -1,0 +1,85 @@
+---
+description: '业务知识 - 项目背景、领域术语、业务流程和规则；当需要理解业务上下文时使用'
+alwaysApply: false
+---
+
+# 业务知识
+
+## 项目背景
+
+### 项目是什么
+
+<!-- TODO: 一句话描述项目（建议参考根 README.md：开源 LLM 应用开发平台） -->
+
+### 解决什么问题
+
+<!-- TODO: 描述项目要解决的核心问题（如：从原型到生产的 LLM 应用开发与运维） -->
+
+### 服务谁
+
+<!-- TODO: 描述目标用户群体（如：内部业务团队 / 外部 SaaS 用户 / 企业级私有部署） -->
+
+## 领域术语
+
+| 术语 | 英文/代码名 | 业务含义 |
+| ---- | ----------- | -------- |
+| 工作流 | Workflow / AdvancedChat | <!-- TODO: 业务侧定义 --> |
+| 应用 | App | <!-- TODO: chat / workflow / agent_chat / completion 的业务边界 --> |
+| 知识库 | Dataset | <!-- TODO: 与"文档/切片/索引"的业务粒度划分 --> |
+| 流水线 | RAG Pipeline | <!-- TODO: 与传统知识库的差异 --> |
+| 触发器 | Trigger（Webhook / Schedule / Plugin） | <!-- TODO: 各触发方式的业务用途 --> |
+| 工具 | Tool（内置 / API / MCP / Workflow as Tool） | <!-- TODO: 业务侧的差异 --> |
+| 插件 | Plugin（Plugin Daemon） | <!-- TODO: 与 Tool / Provider 的边界 --> |
+| 模型供应商 | Model Provider | <!-- TODO: 业务侧含义 --> |
+| 多租户 | Tenant | <!-- TODO: 团队 / 工作区 / 配额 --> |
+| 终端用户 | EndUser | <!-- TODO: WebApp / Service API 接入的最终消费者 --> |
+| 配额 / 积分 | Quota / Credit | <!-- TODO: 业务计费规则 --> |
+
+<!-- TODO: 补充更多专有名词及其业务含义 -->
+
+## 业务流程
+
+### 核心流程
+
+<!-- TODO: 用 Mermaid 流程图描述核心业务流程 -->
+
+```mermaid
+flowchart TD
+    Start[用户进入控制台] --> Setup[创建/选择应用]
+    Setup --> ChooseType[选择应用类型]
+    ChooseType -->|Chat| BuildChat[配置模型/Prompt/工具/知识库]
+    ChooseType -->|Workflow| BuildWF[搭建节点图]
+    ChooseType -->|Agent| BuildAgent[配置工具与策略]
+    BuildChat --> Test[调试 / 命中测试]
+    BuildWF --> Test
+    BuildAgent --> Test
+    Test --> Publish[发布 / 嵌入 / 接入]
+    Publish --> Observe[运行监控 / 标注 / 评估]
+    Observe --> Iterate[迭代改进]
+```
+
+### 流程说明
+
+<!-- TODO: 补充业务层面的流程描述、分支条件、典型反例 -->
+
+## 业务规则
+
+### 状态流转规则
+
+<!-- TODO: 描述业务对象的状态流转 -->
+- 应用启停 / 草稿与发布
+- 工作流运行：running / paused / succeeded / failed
+- 文档索引：waiting / parsing / cleaning / splitting / indexing / completed / paused / error
+- 触发器订阅生命周期
+
+### 计算规则
+
+<!-- TODO: 描述业务计算规则（如 token 计费、积分扣减、配额校验、限流） -->
+
+### 业务约束
+
+<!-- TODO: 描述业务限制条件，例如：
+- 哪些操作必须有租户级权限
+- 哪些功能仅 CLOUD edition 可用
+- 哪些 SLA 必须满足
+-->

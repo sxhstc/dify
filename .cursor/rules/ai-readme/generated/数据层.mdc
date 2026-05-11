@@ -1,0 +1,481 @@
+---
+description: '数据层 - PostgreSQL 表清单、ER 关系、向量库适配；当需要了解数据结构时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# 数据层
+
+## 数据库总览
+
+```mermaid
+flowchart LR
+    subgraph App["应用 / 内容"]
+        Apps[apps]
+        AppMC[app_model_configs]
+        AppMCP[app_mcp_servers]
+        Site[sites]
+        Recommended[recommended_apps]
+        Installed[installed_apps]
+        Trial[trial_apps]
+        ApiToken[api_tokens]
+        Conv[conversations]
+        Msg[messages]
+        MsgFiles[message_files]
+        MsgFeedback[message_feedbacks]
+        MsgAnno[message_annotations]
+        AppAnnoSet[app_annotation_settings]
+        AnnoHit[app_annotation_hit_histories]
+    end
+
+    subgraph WF["工作流"]
+        WFs[workflows]
+        WFRun[workflow_runs]
+        WFNode[workflow_node_executions]
+        WFNodeOff[workflow_node_execution_offload]
+        WFLog[workflow_app_logs]
+        WFArchive[workflow_archive_logs]
+        WFConvVar[workflow_conversation_variables]
+        WFDraftVar[workflow_draft_variables]
+        WFPause[workflow_pauses]
+        WFComment[workflow_comments]
+    end
+
+    subgraph Trigger["触发器"]
+        AppTrig[app_triggers]
+        TrigSub[trigger_subscriptions]
+        WFWebhook[workflow_webhook_triggers]
+        WFPlugin[workflow_plugin_triggers]
+        WFSchedule[workflow_schedule_plans]
+        WFTrigLog[workflow_trigger_logs]
+    end
+
+    subgraph KB["知识库 / RAG"]
+        DS[datasets]
+        Doc[documents]
+        Seg[document_segments]
+        Child[child_chunks]
+        Embed[embeddings]
+        DSColl[dataset_collection_bindings]
+        DSPerm[dataset_permissions]
+        DSQuery[dataset_queries]
+        DSKw[dataset_keyword_tables]
+        DSRule[dataset_process_rules]
+        ExtKBApi[external_knowledge_apis]
+        ExtKBBind[external_knowledge_bindings]
+        Pipeline[pipelines]
+        PipelineLog[document_pipeline_execution_logs]
+    end
+
+    subgraph IAM["账户 / 租户 / 权限"]
+        Acc[accounts]
+        Ten[tenants]
+        TAJ[tenant_account_joins]
+        Inv[invitation_codes]
+        Integ[account_integrates]
+        AccPlugPerm[account_plugin_permissions]
+        TenPlugAuto[tenant_plugin_auto_upgrade_strategies]
+        EU[end_users]
+    end
+
+    subgraph Models["模型供应商"]
+        Provider[providers]
+        ProvModel[provider_models]
+        ProvCred[provider_credentials]
+        ProvModelCred[provider_model_credentials]
+        ProvOrd[provider_orders]
+        ProvSet[provider_model_settings]
+        TenDefM[tenant_default_models]
+        TenPref[tenant_preferred_model_providers]
+        LB[load_balancing_model_configs]
+        Credit[tenant_credit_pools]
+    end
+
+    subgraph Tools["工具 / 数据源 / 扩展"]
+        ToolBuiltin[tool_builtin_providers]
+        ToolAPI[tool_api_providers]
+        ToolWF[tool_workflow_providers]
+        ToolMCP[tool_mcp_providers]
+        ToolFiles[tool_files]
+        ToolPub[tool_published_apps]
+        ToolModelInv[tool_model_invokes]
+        DSourceOAuth[datasource_oauth_params]
+        DSourceProv[datasource_providers]
+        APIExt[api_based_extensions]
+    end
+
+    subgraph Sys["系统 / 任务"]
+        Setup[dify_setups]
+        Tags[tags]
+        TagBind[tag_bindings]
+        TraceCfg[trace_app_config]
+        OpLog[operation_logs]
+        UpFile[upload_files]
+        ApiReq[api_requests]
+        Celery1[celery_taskmeta]
+        Celery2[celery_tasksetmeta]
+    end
+
+    Acc -->|TAJ| Ten
+    Ten --> Apps
+    Apps --> AppMC
+    Apps --> Conv
+    Apps --> WFs
+    Apps --> Site
+    Apps --> AppTrig
+    Apps --> AppMCP
+    Conv --> Msg
+    Msg --> MsgFiles
+    Msg --> MsgFeedback
+    WFs --> WFRun
+    WFRun --> WFNode
+    WFRun --> WFLog
+    WFs --> WFConvVar
+    WFs --> WFDraftVar
+    WFs --> WFComment
+    WFs --> AppTrig
+    AppTrig --> TrigSub
+    TrigSub --> WFWebhook
+    TrigSub --> WFSchedule
+    TrigSub --> WFPlugin
+    Apps --> WFTrigLog
+
+    Ten --> DS
+    DS --> Doc
+    Doc --> Seg
+    Seg --> Child
+    Seg --> Embed
+    DS --> DSColl
+    DS --> DSPerm
+    DS --> DSRule
+    DS --> ExtKBBind
+    Apps --> Pipeline
+    Pipeline --> PipelineLog
+
+    Ten --> Provider --> ProvModel
+    Provider --> ProvCred
+    ProvModel --> ProvModelCred
+    Ten --> TenDefM
+    Ten --> TenPref
+    Ten --> ProvOrd
+    Provider --> LB
+    Ten --> Credit
+
+    Ten --> ToolBuiltin
+    Ten --> ToolAPI
+    Ten --> ToolWF
+    Ten --> ToolMCP
+    Apps --> ToolPub
+    Ten --> DSourceProv
+
+    Ten --> Tags
+    Tags --> TagBind
+    Apps --> TraceCfg
+    Apps --> OpLog
+    Apps --> UpFile
+    Apps --> ApiReq
+```
+
+## 表结构清单
+
+> 表名以 `__tablename__` 为准；模型类位于 `api/models/`。
+
+### 账户 / 租户 / 权限（`api/models/account.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `accounts` | Account | 账户主表（继承 Flask-Login UserMixin） |
+| `tenants` | Tenant | 租户（团队/工作区） |
+| `tenant_account_joins` | TenantAccountJoin | 账户-租户关系（含角色） |
+| `account_integrates` | AccountIntegrate | 第三方账户集成（OAuth） |
+| `invitation_codes` | InvitationCode | 邀请码 |
+| `account_plugin_permissions` | TenantPluginPermission | 租户插件权限 |
+| `tenant_plugin_auto_upgrade_strategies` | TenantPluginAutoUpgradeStrategy | 插件自动升级策略 |
+
+### 应用 / 内容（`api/models/model.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `dify_setups` | DifySetup | 系统初始化标记 |
+| `apps` | App | 应用（chat/workflow/advanced_chat/agent_chat/completion） |
+| `app_model_configs` | AppModelConfig | 应用模型配置（prompt/参数/数据集等） |
+| `recommended_apps` | RecommendedApp | 推荐应用 |
+| `installed_apps` | InstalledApp | 用户安装的应用 |
+| `trial_apps` | TrialApp | 试用应用 |
+| `account_trial_app_records` | AccountTrialAppRecord | 试用记录 |
+| `exporle_banners` | ExporleBanner | 探索页 banner |
+| `oauth_provider_apps` | （`__tablename__` 见 `model.py`） | OAuth provider 应用 |
+| `app_mcp_servers` | AppMCPServer | 应用 MCP server |
+| `sites` | Site | WebApp 配置 |
+| `api_tokens` | ApiToken | API 访问令牌 |
+| `upload_files` | UploadFile | 上传文件元数据 |
+| `api_requests` | ApiRequest | API 请求审计 |
+| `conversations` | Conversation | 对话 |
+| `messages` | Message | 消息 |
+| `message_files` | MessageFile | 消息附件 |
+| `message_feedbacks` | MessageFeedback | 反馈（赞/踩/评论） |
+| `message_annotations` | MessageAnnotation | 消息标注 |
+| `app_annotation_hit_histories` | AppAnnotationHitHistory | 标注命中历史 |
+| `app_annotation_settings` | AppAnnotationSetting | 标注 reply 设置 |
+| `message_chains` | MessageChain | 消息链 |
+| `message_agent_thoughts` | MessageAgentThought | Agent 思考过程 |
+| `dataset_retriever_resources` | DatasetRetrieverResource | 检索来源 |
+| `end_users` | EndUser | 终端用户（WebApp / Service API） |
+| `operation_logs` | OperationLog | 操作日志 |
+| `tags` | Tag | 标签 |
+| `tag_bindings` | TagBinding | 标签绑定 |
+| `trace_app_config` | TraceAppConfig | 应用链路追踪配置 |
+| `tenant_credit_pools` | TenantCreditPool | 租户积分池 |
+
+### 工作流（`api/models/workflow.py` + `api/models/comment.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `workflows` | Workflow | 工作流定义（图） |
+| `workflow_runs` | WorkflowRun | 运行实例 |
+| `workflow_node_executions` | WorkflowNodeExecutionModel | 节点执行 |
+| `workflow_node_execution_offload` | WorkflowNodeExecutionOffload | 节点执行大字段下沉 |
+| `workflow_app_logs` | WorkflowAppLog | 工作流应用日志 |
+| `workflow_archive_logs` | WorkflowArchiveLog | 归档日志 |
+| `workflow_conversation_variables` | ConversationVariable | 会话变量 |
+| `workflow_draft_variables` | （`workflow.py`） | 草稿变量 |
+| `workflow_draft_variable_files` | （`workflow.py`） | 草稿变量文件 |
+| `workflow_pauses` | WorkflowPause | 工作流暂停状态 |
+| `workflow_pause_reasons` | （`workflow.py`） | 暂停原因 |
+| `workflow_comments` | WorkflowComment | 工作流评论 |
+| `workflow_comment_replies` | WorkflowCommentReply | 评论回复 |
+| `workflow_comment_mentions` | WorkflowCommentMention | 评论 @ 提醒 |
+
+### 触发器（`api/models/trigger.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `trigger_subscriptions` | TriggerSubscription | 触发器订阅 |
+| `trigger_oauth_system_clients` | TriggerOAuthSystemClient | 系统级 OAuth 客户端 |
+| `trigger_oauth_tenant_clients` | TriggerOAuthTenantClient | 租户级 OAuth 客户端 |
+| `workflow_trigger_logs` | （`trigger.py`） | 触发日志 |
+| `workflow_webhook_triggers` | （`trigger.py`） | Webhook 触发器 |
+| `workflow_plugin_triggers` | （`trigger.py`） | 插件触发器 |
+| `app_triggers` | AppTrigger | 应用触发器 |
+| `workflow_schedule_plans` | WorkflowSchedulePlan | 计划任务 |
+
+### 知识库 / RAG（`api/models/dataset.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `datasets` | Dataset | 知识库 |
+| `dataset_process_rules` | DatasetProcessRule | 切片/清洗规则 |
+| `documents` | Document | 文档 |
+| `document_segments` | DocumentSegment | 切片 |
+| `child_chunks` | ChildChunk | 父子检索的子块 |
+| `app_dataset_joins` | AppDatasetJoin | 应用-知识库关联 |
+| `dataset_queries` | DatasetQuery | 检索查询日志 |
+| `dataset_keyword_tables` | DatasetKeywordTable | 关键词表 |
+| `embeddings` | Embedding | 向量缓存 |
+| `dataset_collection_bindings` | DatasetCollectionBinding | 集合绑定 |
+| `tidb_auth_bindings` | TidbAuthBinding | TiDB 鉴权绑定 |
+| `whitelists` | Whitelist | 白名单 |
+| `dataset_permissions` | DatasetPermission | 知识库权限 |
+| `external_knowledge_apis` | ExternalKnowledgeApis | 外部知识库 API |
+| `external_knowledge_bindings` | ExternalKnowledgeBindings | 外部知识库绑定 |
+| `dataset_auto_disable_logs` | DatasetAutoDisableLog | 自动禁用日志 |
+| `rate_limit_logs` | RateLimitLog | 限流日志 |
+| `dataset_metadatas` | DatasetMetadata | 元数据字段 |
+| `dataset_metadata_bindings` | DatasetMetadataBinding | 元数据绑定 |
+| `pipelines` | Pipeline | RAG 流水线 |
+| `pipeline_built_in_templates` | PipelineBuiltInTemplate | 内置模板 |
+| `pipeline_customized_templates` | PipelineCustomizedTemplate | 自定义模板 |
+| `document_pipeline_execution_logs` | DocumentPipelineExecutionLog | 流水线执行日志 |
+| `pipeline_recommended_plugins` | PipelineRecommendedPlugin | 推荐插件 |
+| `segment_attachment_bindings` | SegmentAttachmentBinding | 切片附件 |
+| `document_segment_summaries` | DocumentSegmentSummary | 切片摘要索引 |
+
+### 模型供应商（`api/models/provider.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `providers` | Provider | 模型供应商配置 |
+| `provider_models` | ProviderModel | 供应商模型 |
+| `provider_credentials` | （`provider.py`） | 供应商凭证 |
+| `provider_model_credentials` | （`provider.py`） | 模型级凭证 |
+| `provider_orders` | ProviderOrder | 订单 |
+| `provider_model_settings` | ProviderModelSetting | 模型偏好设置 |
+| `tenant_default_models` | TenantDefaultModel | 租户默认模型 |
+| `tenant_preferred_model_providers` | TenantPreferredModelProvider | 租户偏好供应商 |
+| `load_balancing_model_configs` | LoadBalancingModelConfig | 负载均衡 |
+
+### 工具 / 数据源（`api/models/tools.py` + `api/models/source.py` + `api/models/oauth.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `tool_oauth_system_clients` | （`tools.py`） | 工具 OAuth 系统客户端 |
+| `tool_oauth_tenant_clients` | （`tools.py`） | 工具 OAuth 租户客户端 |
+| `tool_builtin_providers` | BuiltinToolProvider | 内置工具 |
+| `tool_api_providers` | ApiToolProvider | API 工具 |
+| `tool_workflow_providers` | WorkflowToolProvider | Workflow as Tool |
+| `tool_mcp_providers` | （`tools.py`） | MCP 工具 |
+| `tool_files` | ToolFile | 工具产出文件 |
+| `tool_published_apps` | （`tools.py`） | 已发布工具应用 |
+| `tool_label_bindings` | ToolLabelBinding | 工具标签 |
+| `tool_model_invokes` | ToolModelInvoke | 工具模型调用 |
+| `tool_conversation_variables` | ToolConversationVariables | 工具会话变量 |
+| `data_source_oauth_bindings` | DataSourceOauthBinding | 数据源 OAuth 绑定 |
+| `data_source_api_key_auth_bindings` | DataSourceApiKeyAuthBinding | 数据源 API Key 绑定 |
+| `datasource_oauth_params` | DatasourceOauthParamConfig | 数据源 OAuth 参数 |
+| `datasource_oauth_tenant_params` | （`oauth.py`） | 租户级 OAuth 参数 |
+| `datasource_providers` | DatasourceProvider | 数据源供应商 |
+
+### 人工输入 / 执行附加（`api/models/human_input.py` + `api/models/execution_extra_content.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `human_input_forms` | HumanInputForm | 人工输入表单 |
+| `human_input_form_deliveries` | HumanInputDelivery | 投递记录 |
+| `human_input_form_recipients` | HumanInputFormRecipient | 接收人 |
+| `execution_extra_contents` | ExecutionExtraContent + HumanInputContent | 执行附加内容（人工输入等） |
+
+### WebApp（`api/models/web.py`）
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `saved_messages` | SavedMessage | WebApp 收藏消息 |
+| `pinned_conversations` | PinnedConversation | WebApp 置顶对话 |
+
+### 系统 / 扩展 / Celery
+
+| 表 | 模型类 | 用途 |
+| --- | --- | --- |
+| `api_based_extensions` | APIBasedExtension | 基于 API 的扩展 |
+| `celery_taskmeta` | CeleryTask | Celery 任务结果 |
+| `celery_tasksetmeta` | CeleryTaskSet | Celery 任务集结果 |
+
+> 表合计约 110+ 个；新增表请同步更新本文档与 `api/models/__init__.py`。
+
+## 关键基类（`api/models/base.py`）
+
+| 类 | 说明 |
+| --- | --- |
+| `Base(DeclarativeBase)` | SQLAlchemy 声明基类 |
+| `TypeBase(MappedAsDataclass, DeclarativeBase)` | dataclass 风格基类（强类型） |
+| `DefaultFieldsMixin` / `DefaultFieldsDCMixin` | 注入 `id` / `created_at` / `updated_at` 等默认字段 |
+
+## ER 关系（聚合视图）
+
+```mermaid
+erDiagram
+    accounts ||--o{ tenant_account_joins : "joins"
+    tenants ||--o{ tenant_account_joins : "joins"
+    tenants ||--o{ apps : "owns"
+    tenants ||--o{ datasets : "owns"
+    tenants ||--o{ providers : "configures"
+
+    apps ||--o{ app_model_configs : "uses"
+    apps ||--o{ workflows : "has"
+    apps ||--o{ conversations : "hosts"
+    apps ||--o{ sites : "publishes"
+    apps ||--o{ app_triggers : "triggers"
+    apps ||--o{ app_dataset_joins : "binds"
+
+    workflows ||--o{ workflow_runs : "runs"
+    workflow_runs ||--o{ workflow_node_executions : "executes"
+    workflow_node_executions ||--o| workflow_node_execution_offload : "offload"
+    workflows ||--o{ workflow_conversation_variables : "vars"
+    workflows ||--o{ workflow_draft_variables : "draft"
+    workflows ||--o{ workflow_pauses : "pauses"
+    workflows ||--o{ workflow_comments : "comments"
+
+    app_triggers ||--o{ trigger_subscriptions : "subscribes"
+    trigger_subscriptions ||--o| workflow_webhook_triggers : "webhook"
+    trigger_subscriptions ||--o| workflow_schedule_plans : "schedule"
+    trigger_subscriptions ||--o| workflow_plugin_triggers : "plugin"
+    apps ||--o{ workflow_trigger_logs : "logs"
+
+    conversations ||--o{ messages : "contains"
+    messages ||--o{ message_files : "attaches"
+    messages ||--o{ message_feedbacks : "feedback"
+    messages ||--o{ message_annotations : "annotates"
+    apps ||--o{ app_annotation_settings : "anno-cfg"
+    apps ||--o{ app_annotation_hit_histories : "anno-hit"
+
+    datasets ||--o{ documents : "contains"
+    documents ||--o{ document_segments : "splits"
+    document_segments ||--o{ child_chunks : "child"
+    document_segments ||--o{ embeddings : "vectors"
+    datasets ||--o{ dataset_collection_bindings : "binds"
+    datasets ||--o{ dataset_permissions : "perms"
+    datasets ||--o{ dataset_queries : "queries"
+    datasets ||--o{ external_knowledge_bindings : "ext-kb"
+    datasets ||--o{ dataset_metadata_bindings : "meta"
+    pipelines ||--o{ document_pipeline_execution_logs : "logs"
+
+    providers ||--o{ provider_models : "models"
+    providers ||--o{ provider_credentials : "creds"
+    provider_models ||--o{ provider_model_credentials : "creds"
+    tenants ||--o{ tenant_default_models : "default"
+    tenants ||--o{ tenant_preferred_model_providers : "prefer"
+    providers ||--o{ load_balancing_model_configs : "lb"
+    tenants ||--o{ tenant_credit_pools : "credit"
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    UploadAPI[/files/* upload/] --> UpFile[(upload_files)]
+    DocumentsAPI[/console/datasets/documents/] --> Doc[(documents)]
+    Doc --> Indexing[indexing_runner]
+    Indexing --> Seg[(document_segments)]
+    Seg --> Embed[(embeddings 缓存)]
+    Embed --> VDB[(向量数据库)]
+
+    ChatAPI[/console|web|service_api chat/] --> Conv[(conversations)]
+    Conv --> Msg[(messages)]
+    Msg --> Trace[(链路追踪后端)]
+
+    WFRunAPI[/workflow run/] --> WFRun[(workflow_runs)]
+    WFRun --> WFNode[(workflow_node_executions)]
+    WFNode --> WFNodeOff[(workflow_node_execution_offload<br>大字段下沉)]
+    WFRun --> WFLog[(workflow_app_logs)]
+```
+
+## 数据来源与去向
+
+| 来源 | 写入表 | 进一步流向 |
+| --- | --- | --- |
+| 控制台创建应用 | `apps` + `app_model_configs` + `sites`（如发布） | 后续 chat / workflow 都基于此 |
+| 工作流编辑保存 | `workflows`（含草稿）+ `workflow_draft_variables` | 运行时读取 |
+| 工作流运行 | `workflow_runs` + `workflow_node_executions` + `workflow_node_execution_offload` + `workflow_app_logs` | 写入对象存储原文（大字段） + 链路追踪 |
+| Chat 对话 | `conversations` + `messages` + `message_files` + `message_agent_thoughts` | 历史读取 + 反馈写入 |
+| 文档上传 | `upload_files` → `documents` → `document_segments`（含 `child_chunks` / `embeddings`） | 向量库 + 对象存储 |
+| 触发器创建 | `app_triggers` → `trigger_subscriptions` → `workflow_webhook_triggers` / `workflow_schedule_plans` / `workflow_plugin_triggers` | 触发后写 `workflow_trigger_logs` |
+| 模型供应商 | `providers` + `provider_models` + `provider_credentials` + `provider_model_credentials` + `load_balancing_model_configs` | model_manager 调用模型时使用 |
+| 工具凭证 | `tool_oauth_*` / `tool_*_providers` / `data_source_*` / `datasource_*` | tools / datasource 调用时使用 |
+
+## 仓储抽象（`api/repositories/` + `api/core/repositories/`）
+
+| 仓储 | 路径 | 说明 |
+| --- | --- | --- |
+| `factory.py` | `api/repositories/factory.py`、`api/core/repositories/factory.py` | 仓储工厂（按用途选择实现） |
+| Workflow 节点执行 | `api/core/repositories/celery_workflow_node_execution_repository.py` | 大表/异步分流 |
+| Workflow 执行 | `api/core/repositories/celery_workflow_execution_repository.py` | 同上 |
+| Workflow Pause 实体 | `api/repositories/entities/workflow_pause.py` | Pause 实体 |
+| 类型定义 | `api/repositories/types.py` | 仓储相关类型 |
+
+## 向量数据库适配
+
+| 类别 | 路径 | 默认 / 可选 |
+| --- | --- | --- |
+| 默认向量库 | Weaviate（`docker-compose.middleware.yaml` 默认启动） | 默认 |
+| 可选适配 | `api/providers/vdb/*` | 30 个：`alibabacloud-mysql / analyticdb / baidu / chroma / clickzetta / couchbase / elasticsearch / hologres / huawei-cloud / iris / lindorm / matrixone / milvus / myscale / oceanbase / opengauss / opensearch / oracle / pgvecto-rs / pgvector / qdrant / relyt / tablestore / tencent / tidb-on-qdrant / tidb-vector / upstash / vastbase / vikingdb / weaviate` |
+| 切换方式 | `api/.env` 设置 `VECTOR_STORE=<name>` + `uv sync --group vdb-<name>` 或 `vdb-all` | 子包通过 entry-point `dify.vector_backends` 动态注册 |
+
+## 数据库迁移
+
+| 项 | 路径 / 命令 |
+| --- | --- |
+| 迁移目录 | `api/migrations/versions/` |
+| 创建迁移 | `uv run --project api flask db migrate -m "..."` |
+| 应用迁移 | `uv run --project api flask db upgrade`（`./dev/start-api` 默认会执行） |
+| 回滚 | `uv run --project api flask db downgrade` |
+| 注意 | 多租户表必须包含 `tenant_id` 索引；大字段考虑 offload 表（参考 `workflow_node_execution_offload`） |

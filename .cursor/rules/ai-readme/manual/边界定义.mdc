@@ -1,0 +1,56 @@
+---
+description: '边界定义 - 模块职责边界和跨仓库协作关系；当需要明确模块职责或跨项目协作时使用'
+alwaysApply: false
+---
+
+# 边界定义
+
+## 模块职责矩阵
+
+| 模块 | 负责 | 不负责 |
+| ---- | ---- | ------ |
+| `api/controllers/*` | 入参校验、调用服务、序列化响应、错误转化 | 业务逻辑、SQL、跨服务编排 |
+| `api/services/*` | 用例编排、事务边界、副作用显式化 | HTTP 解析、领域规则细节 |
+| `api/core/*` | 领域规则、流程编排、节点系统 | 直接依赖 Flask / 数据库 session |
+| `api/repositories/*`、`api/core/repositories/*` | 大表读写抽象（如工作流执行） | 业务逻辑 |
+| `api/models/*` | 表结构、关系、约束 | 业务流程 |
+| `api/tasks/*` + `api/schedule/*` | Celery 异步任务 / 计划任务 | 同步阻塞业务 |
+| `api/extensions/*` | Flask 扩展、第三方集成 | 业务逻辑 |
+| `api/providers/{vdb,trace}/*` | 向量库 / 追踪后端的可选实现 | 横向调用其他 provider |
+| `web/app/components/base/*` | 业务无关原子组件（迁移期） | <!-- TODO: 是否仍允许新增？ --> |
+| `web/app/components/<domain>/*` | 业务域组件 | <!-- TODO: 哪些跨域行为禁止 --> |
+| `packages/dify-ui/*` | overlay / portal / 通用 UI 原语 | 业务字符串、业务状态 |
+| `packages/contracts/*` | 自动生成的 oRPC + Zod contract | 手改生成结果 |
+| `web/contract/*` | 业务侧 contract 组合 | <!-- TODO: 与 packages/contracts 的边界 --> |
+| `web/service/*`（旧版 service-\*） | 遗留调用包装 | 新代码不得新增；按 frontend-query-mutation skill 迁移 |
+
+## 模块间协作规则
+
+<!-- TODO: 在此补充团队约定，例如：
+- 跨业务域共享逻辑应抽到哪一层？
+- 是否允许业务组件直接调用 contract？还是必须经 hooks 包装？
+- 后端何时引入新的 repository？
+-->
+
+## 跨仓库协作
+
+### 关联仓库清单
+
+| 仓库名 | 职责 | 协作方式 |
+| ------ | ---- | -------- |
+| `langgenius/dify-plugin-daemon` | Plugin Daemon 守护进程 | 独立部署，HTTP 接口；本仓库 `api/core/plugin/impl` 通过 client 调用 |
+| `langgenius/dify-sandbox` | 安全代码执行沙箱 | 独立部署；通过 `api/core/helper/code_executor` 调用 |
+| `langgenius/dify-docs` | 官方文档 | 文档与本仓库分离 |
+| <!-- TODO: 内部 / 外部其他依赖仓库 --> |
+
+### 接口约定
+
+<!-- TODO: 描述跨仓库的接口约定，如 Plugin Daemon HTTP 协议、Sandbox 调用契约、内网 inner_api 调用约束 -->
+
+## 边界设计原则
+
+<!-- TODO: 描述边界划分的设计原则，例如：
+- DDD：聚合内强一致，跨聚合最终一致
+- 多租户：所有共享资源访问必须透传 tenant_id
+- 前端：UI / 状态 / 调用三层各自有边界
+-->

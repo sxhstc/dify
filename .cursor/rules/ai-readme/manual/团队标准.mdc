@@ -1,0 +1,99 @@
+---
+description: '团队标准 - Git规范、质量门禁和Review约定；当需要了解团队开发规范时使用'
+alwaysApply: false
+---
+
+# 团队标准
+
+## Git 规范
+
+### 分支策略
+
+<!-- TODO: 确认以下分支策略是否符合团队习惯 -->
+
+```mermaid
+gitGraph
+    commit
+    branch develop
+    checkout develop
+    commit
+    branch feature/xxx
+    checkout feature/xxx
+    commit
+    commit
+    checkout develop
+    merge feature/xxx
+    checkout main
+    merge develop
+```
+
+| 分支类型 | 命名规则    | 用途     |
+| -------- | ----------- | -------- |
+| main     | main        | 生产环境 |
+| develop  | develop     | 开发环境 |
+| feature  | feature/xxx | 功能开发 |
+| hotfix   | hotfix/xxx  | 紧急修复 |
+
+### Commit 规范
+
+<!-- TODO: 确认提交格式（建议沿用 Conventional Commits） -->
+
+```
+<type>(<scope>): <subject>
+
+feat: 新功能
+fix: 修复 bug
+docs: 文档更新
+style: 代码格式
+refactor: 重构
+test: 测试相关
+chore: 构建/工具
+```
+
+## 质量门禁
+
+<!-- TODO: 描述代码合并前的检查项，并核对仓库实际配置 -->
+
+| 检查项 | 要求 | 工具 |
+| ------ | ---- | ---- |
+| 后端 Lint | 无错误 | Ruff（`api/.ruff.toml`） |
+| 后端类型检查 | 无错误 | basedpyright + pyrefly |
+| 后端 Import 健康度 | 无新增违规 | import-linter |
+| 后端单元测试 | 通过 | pytest（`api/tests/unit_tests/`） |
+| 后端覆盖率 | <!-- TODO: 团队阈值 --> | pytest-cov |
+| 前端 Lint | 无错误 | ESLint（`@antfu/eslint-config`） + tsslint |
+| 前端类型检查 | 无错误 | tsgo |
+| 前端单元测试 | 通过 | Vitest + RTL |
+| 前端 i18n 校验 | 无遗漏字段 | `pnpm -C web i18n:check` |
+| 前端死代码 | 无新增 | knip |
+| E2E（可选） | 关键 tag 通过 | Cucumber + Playwright |
+
+## Code Review 规范
+
+<!-- TODO: 描述 Review 关注点 -->
+
+### Review 清单
+
+- [ ] 代码逻辑正确
+- [ ] 边界条件处理（空 / 大列表 / 并发）
+- [ ] 错误处理完善（域异常 → HTTP 转化 / 前端 toast）
+- [ ] 命名规范（snake_case / PascalCase / UPPER_CASE / camelCase）
+- [ ] 多租户：`tenant_id` 是否贯穿
+- [ ] 性能：N+1 / 无索引扫描 / 大字段写库
+- [ ] 测试：新功能是否有最小测试覆盖
+- [ ] 文档：模块/类/函数 docstring 是否同步
+- [ ] i18n：前端字符串是否走 `web/i18n/en-US/`
+- [ ] Overlay：是否使用 `@langgenius/dify-ui/*`
+- [ ] Query/Mutation：是否走 `consoleQuery` / `marketplaceQuery`
+
+## 团队约定
+
+<!-- TODO: 描述团队的隐性约定，例如：
+- 哪些目录默认有 owner？
+- 紧急 hotfix 的回流策略
+- DSL / 模板修改的二次确认人
+-->
+
+## 特殊场景处理
+
+<!-- TODO: 描述紧急修复 / 数据迁移 / 大版本升级等特殊场景的处理方式 -->

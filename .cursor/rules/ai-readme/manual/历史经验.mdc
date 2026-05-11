@@ -1,0 +1,44 @@
+---
+description: '历史经验 - 踩坑记录；AI 写代码或做方案前必读，避免重复踩坑'
+alwaysApply: false
+---
+
+# 历史经验
+
+> ⚠️ **AI 必读**：写代码或做方案前先看这里，避免重复踩坑。
+>
+> 已知坑可同时参考根目录 `docs/zh-CN/local-dev.md`（含本地开发常见黑框报错说明）。
+
+## 已记录的坑
+
+| # | 模块 / 场景 | 现象 | 原因 | 解决 / 预防 |
+| - | --- | --- | --- | --- |
+| 1 | 源码模式前端 `./dev/start-web` | `code-inspector` 抢 `5678` 端口 / `next dev --inspect` 抢 `9229` / `loro-crdt wasm` 编译失败 / 配置页 `ResizeObserver loop completed` 弹层 / `/apps` `Hydration failed` | 多个本地开发态兼容问题（含浏览器扩展注入）叠加 | 已切到 vinext 默认链路；`code-inspector` 默认关闭；提供 `NEXT_USE_NEXT_DEV` / `NEXT_ENABLE_INSPECT` 开关；详见 `docs/zh-CN/local-dev.md` |
+| 2 | 工作流"在线用户"查询 | 控制台日志重复刷 `apps.workflowOnlineUsers Invalid input shape for "detailed" structure` | hook 在 `enabled=false` 时仍向 oRPC 传 `skipToken` 作为 input，编码阶段抛错 | 已改为按 `enabled` 走双分支 query options；详见 `web/app/components/apps/hooks/use-workflow-online-users.ts` |
+| 3 | 聊天预览 ResizeObserver | `ResizeObserver loop completed with undelivered notifications` 偶发弹窗 | observer 回调中同步改 DOM 触发布局抖动 | 已改为按帧（`requestAnimationFrame`）+ 仅值变化时写回；详见 `web/app/components/base/chat/chat/use-chat-layout.ts` |
+| 4 | Lexical Prompt Editor 警告 | `Override for TextNode specifies 'replace' without 'withKlass'` | Lexical 新版本要求显式 `withKlass` | 已在 `web/app/components/base/prompt-editor/index.tsx` 加上 `withKlass: CustomTextNode` |
+
+<!-- TODO: 持续追加；每条按"现象 → 原因 → 解决 / 预防"结构记录 -->
+
+## 写代码前 checklist
+
+- 后端
+    - [ ] 是否带上了 `tenant_id` 上下文，并贯穿到 service / repository / model？
+    - [ ] 是否走 `configs.dify_config`，而不是 `os.environ`？
+    - [ ] 是否在控制器只做编排，把业务逻辑放进 service / core？
+    - [ ] 是否有对应的 `services/errors/` 域异常 + 控制器 `error.py` 映射？
+    - [ ] 是否给新公共 API 写了最小 pytest 用例？
+    - [ ] docstring 是否同步反映新行为？
+- 前端
+    - [ ] 是否走 `consoleQuery` / `marketplaceQuery` 的 `queryOptions` / `mutationOptions`？
+    - [ ] 是否避免新增 `web/service/use-*` 透传 hook？
+    - [ ] 是否使用 `@langgenius/dify-ui/*` 的 overlay 原语？
+    - [ ] 是否把字符串放在 `web/i18n/en-US/`？
+    - [ ] 是否在合适的状态库上落点（TanStack Query / Zustand / Jotai / nuqs）？
+    - [ ] 是否避免在 Observer / Effect 回调里同步触发布局抖动？
+
+## 记录模板
+
+```markdown
+| <编号> | <模块/场景> | <现象> | <根因> | <解决/预防方案及对应文件路径> |
+```

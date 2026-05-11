@@ -1,0 +1,186 @@
+---
+description: 'API接口 - Dify 后端控制器分组、路由前缀、鉴权方式；当需要调用或新增 API 时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# API 接口
+
+## 蓝图与前缀
+
+| 蓝图 | URL 前缀 | 入口 | 用途 | 主要消费者 |
+| --- | --- | --- | --- | --- |
+| `console` | `/console/api` | `api/controllers/console/__init__.py` | 控制台 API（应用、数据集、租户、计费、模型等管理） | 前端控制台 |
+| `service_api` | `/v1` | `api/controllers/service_api/__init__.py` | 对外开放的标准 API | 终端用户 / 第三方集成 / Dify SDK |
+| `web` | `/api` | `api/controllers/web/__init__.py` | WebApp 与嵌入聊天使用 | 分享的 WebApp 浏览器 |
+| `files` | `/files`（视具体路由） | `api/controllers/files/` | 文件上传 / 预览 / 工具产物 | 控制台 / WebApp |
+| `inner_api` | `/inner/api` | `api/controllers/inner_api/__init__.py` | 同集群内部 API | 仅集群内部 |
+| `mcp` | `/mcp` | `api/controllers/mcp/` | MCP（Model Context Protocol）入口 | MCP 客户端 |
+| `trigger` | `/trigger` | `api/controllers/trigger/` | Webhook 触发器 | 外部回调 |
+
+> 详细规范由 `flask-restx` + `fastopenapi` 共同生成。FastOpenAPI 集成参见 `api/controllers/fastopenapi.py` 与 `api/extensions/ext_fastopenapi.py`。
+
+## Console API（`/console/api`）
+
+按子目录分组（`api/controllers/console/`）：
+
+| 分组 | 目录 / 文件 | 主要资源 |
+| --- | --- | --- |
+| 应用 App | `console/app/`（`app.py` / `app_import.py` / `agent.py` / `annotation.py` / `audio.py` / `completion.py` / `conversation.py` / `conversation_variables.py` / `generator.py` / `mcp_server.py` / `message.py` / `model_config.py` / `ops_trace.py` / `site.py` / `statistic.py` / `advanced_prompt_template.py`） | 应用 CRUD / 配置 / 调试 / Site / 统计 / 监控 |
+| 应用工作流 | `console/app/workflow.py` / `workflow_app_log.py` / `workflow_comment.py` / `workflow_draft_variable.py` / `workflow_run.py` / `workflow_statistic.py` / `workflow_trigger.py` | 工作流编辑 / 运行 / 日志 / 协作 / 触发器 |
+| 数据集 | `console/datasets/`（`datasets.py` / `datasets_document.py` / `datasets_segments.py` / `data_source.py` / `external.py` / `hit_testing.py` / `hit_testing_base.py` / `metadata.py` / `website.py` / `wraps.py` / `error.py`） | 知识库 / 文档 / 切片 / 元数据 / 命中测试 / 网站爬取 |
+| RAG Pipeline | `console/datasets/rag_pipeline/`（`rag_pipeline.py` / `rag_pipeline_workflow.py` / `rag_pipeline_datasets.py` / `rag_pipeline_draft_variable.py` / `rag_pipeline_import.py` / `datasource_auth.py` / `datasource_content_preview.py`） | RAG 流水线管理 / 数据源 |
+| 探索 Explore | `console/explore/`（`audio.py` / `banner.py` / `completion.py` / `conversation.py` / `installed_app.py` / `message.py` / `parameter.py` / `recommended_app.py` / `saved_message.py` / `trial.py` / `workflow.py` / `wraps.py` / `error.py`） | 应用市场探索 / 体验 |
+| 认证 Auth | `console/auth/`（`activate.py` / `data_source_bearer_auth.py` / `data_source_oauth.py` / `email_register.py` / `forgot_password.py` / `login.py` / `oauth.py` / `oauth_server.py` / `error.py`） | 登录 / 注册 / OAuth / 数据源凭证 |
+| 计费 Billing | `console/billing/`（`billing.py` / `compliance.py`） | 计费 / 合规 |
+| 工作区 Workspace | `console/workspace/`（`workspace.py` / `account.py` / `members.py` / `agent_providers.py` / `endpoint.py` / `load_balancing_config.py` / `model_providers.py` / `models.py` / `plugin.py` / `tool_providers.py` / `trigger_providers.py` / `error.py`） | 租户 / 成员 / 模型 / 工具 / 触发器 / 插件 |
+| 标签 | `console/tag/tags.py` | 标签 CRUD |
+| Socket.IO | `console/socketio/workflow.py` | 工作流协作实时通道 |
+| 文件 | `console/files.py` / `console/remote_files.py` | 文件上传 |
+| 系统 | `console/admin.py` / `apikey.py` / `extension.py` / `feature.py` / `human_input_form.py` / `init_validate.py` / `notification.py` / `ping.py` / `setup.py` / `spec.py` / `version.py` | 管理 / API Key / 扩展 / 功能开关 / 初始化 / 健康检查 / OpenAPI |
+
+## Service API（`/v1`）
+
+按子目录分组（`api/controllers/service_api/`）：
+
+| 分组 | 文件 | 用途 |
+| --- | --- | --- |
+| App | `app/app.py` / `app/audio.py` / `app/completion.py` / `app/conversation.py` / `app/file.py` / `app/file_preview.py` / `app/human_input_form.py` / `app/message.py` / `app/site.py` / `app/workflow.py` / `app/workflow_events.py` / `app/annotation.py` | 对外应用 API（聊天、补全、工作流执行、文件、会话、SSE 事件、标注） |
+| Dataset | `dataset/dataset.py` / `dataset/document.py` / `dataset/hit_testing.py` / `dataset/metadata.py` / `dataset/segment.py` / `dataset/error.py` | 知识库 / 文档 / 切片 / 元数据 / 命中测试 |
+| Dataset RAG Pipeline | `dataset/rag_pipeline/rag_pipeline_workflow.py` / `serializers.py` | RAG Pipeline 对外 API |
+| End User | `end_user/end_user.py` / `error.py` | 终端用户管理 |
+| Workspace | `workspace/models.py` | 模型清单 |
+| 入口辅助 | `index.py` / `wraps.py` | 健康检查 / 装饰器 |
+
+## Web API（`/api`，WebApp 使用）
+
+子模块（`api/controllers/web/`）：
+
+| 模块 | 用途 |
+| --- | --- |
+| `passport.py` | 颁发 WebApp passport |
+| `login.py` / `forgot_password.py` | WebApp 用户登录与找回 |
+| `app.py` / `site.py` / `feature.py` | 应用元信息 / Site 配置 / 功能 |
+| `audio.py` / `completion.py` / `conversation.py` / `message.py` / `saved_message.py` / `workflow.py` / `workflow_events.py` | 聊天 / 补全 / 工作流 / 收藏消息 |
+| `human_input_form.py` | 人工输入表单 |
+| `files.py` / `remote_files.py` | 文件上传 / 远程文件 |
+| `wraps.py` / `error.py` | 装饰器 / 错误 |
+
+## Files（`/files`）
+
+| 模块 | 用途 |
+| --- | --- |
+| `files/upload.py` | 上传 |
+| `files/image_preview.py` | 图片预览 / 签名 |
+| `files/tool_files.py` | 工具产物文件 |
+
+## Inner API（仅集群内）
+
+| 子模块 | 用途 |
+| --- | --- |
+| `inner_api/mail.py` | 邮件 |
+| `inner_api/app/dsl.py` | 应用 DSL 内部接口 |
+| `inner_api/plugin/plugin.py` / `plugin/wraps.py` | 插件内部接口 |
+| `inner_api/workspace/workspace.py` | 工作区内部接口 |
+| `inner_api/wraps.py` | 鉴权装饰器 |
+
+## MCP（`/mcp`）
+
+| 模块 | 用途 |
+| --- | --- |
+| `mcp/mcp.py` | MCP 协议入口 |
+
+## Trigger（`/trigger`）
+
+| 模块 | 用途 |
+| --- | --- |
+| `trigger/webhook.py` | Webhook 接收 |
+| `trigger/trigger.py` | 通用触发入口 |
+
+## Common（共享基础）
+
+| 模块 | 路径 | 用途 |
+| --- | --- | --- |
+| 控制器装饰器 | `controllers/console/wraps.py` / `service_api/wraps.py` / `web/wraps.py` / `files/...` | 鉴权、限流、错误转化等 |
+| 公共 helpers | `controllers/common/{controller_schemas,errors,fields,file_response,helpers,human_input,schema}.py` | 入参校验、字段、文件响应、human input 等 |
+| FastOpenAPI 集成 | `controllers/fastopenapi.py` + `extensions/ext_fastopenapi.py` | 自动生成 OpenAPI |
+| OpenAPI 生成脚本 | `dev/generate_swagger_specs.py`（README 引用；如不存在视实现而定） | TS Stub 输入 |
+
+## 鉴权方式
+
+| 蓝图 | 鉴权方式 | 关键模块 |
+| --- | --- | --- |
+| Console | Cookie + Session（`flask-login`），登录态由 `services/account_service.py` 维护，需 `tenant_id` 上下文 | `extensions/ext_login.py`、`controllers/console/wraps.py` |
+| Service API | API Token（`Authorization: Bearer <api_key>`） | `services/api_token_service.py`、`controllers/service_api/wraps.py` |
+| Web | WebApp passport（短期 token） + 必要时终端用户登录 | `controllers/web/passport.py`、`services/webapp_auth_service.py`、`controllers/web/wraps.py` |
+| Files | 视场景：签名 URL / 登录态 / WebApp passport | `extensions/ext_storage.py`、`core/helper/encrypter.py` |
+| Inner API | 内网/同集群机制（视部署） | `controllers/inner_api/wraps.py` |
+| Trigger（Webhook） | 路径级 token + 签名校验 | `services/trigger/trigger_request_service.py` |
+| MCP | 视协议 token / Bearer | `core/mcp/`、`controllers/mcp/mcp.py` |
+
+## 错误处理
+
+| 层 | 模块 | 行为 |
+| --- | --- | --- |
+| 域异常定义 | `core/errors/`、`services/errors/` | 业务异常（`account.py` / `app.py` / `chunk.py` / `dataset.py` / `llm.py` / `enterprise.py` / `workspace.py` / `workflow_service.py` / `app_model_config.py` 等） |
+| 控制器错误转化 | `controllers/{console,service_api,web,inner_api,common}/error.py` | 域异常 → HTTP 状态 + JSON |
+| 公共字段 | `controllers/common/errors.py` / `fields.py` | 标准错误结构 |
+| 日志 / 监控 | `extensions/ext_request_logging.py`、`extensions/ext_otel.py`、`extensions/ext_sentry.py` | 请求日志、追踪、Sentry |
+
+## 调用方式
+
+### 1. 后端→后端 / 测试
+
+```python
+import httpx
+
+resp = httpx.post(
+    "http://localhost:5001/v1/chat-messages",
+    headers={"Authorization": "Bearer <api_key>"},
+    json={"inputs": {}, "query": "hello", "user": "tester", "response_mode": "streaming"},
+    timeout=None,
+)
+for line in resp.iter_lines():
+    print(line)
+```
+
+### 2. 前端 oRPC（推荐）
+
+```ts
+import { useQuery } from '@tanstack/react-query'
+import { consoleQuery } from '@/service/client'
+
+const { data } = useQuery(consoleQuery.apps.list.queryOptions({
+  input: { query: { page: 1, limit: 20 } },
+}))
+```
+
+### 3. 前端旧版 service-\*（迁移目标）
+
+```ts
+import { fetchAppList } from '@/service/apps'
+const list = await fetchAppList({ page: 1, limit: 20 })
+```
+
+> 新代码应走 oRPC contract，详见 `web/AGENTS.md` + frontend-query-mutation skill。
+
+## OpenAPI / 文档
+
+| 项 | 说明 |
+| --- | --- |
+| OpenAPI 自动生成 | `flask-restx` + `fastopenapi` |
+| 控制台 OpenAPI 端点 | `/console/api/spec` 等（具体由 `controllers/console/spec.py` 决定） |
+| 用于生成 TS Stub | `api/README.md` 提到 `uv run dev/generate_swagger_specs.py --output-dir openapi`（如脚本存在）；`packages/contracts/openapi-ts.api.config.ts` 把 OpenAPI 转 oRPC + Zod |
+| 自动生成的 contract | `packages/contracts/generated/api/console/**` + `packages/contracts/generated/enterprise/**` |
+| 前端业务 contract | `web/contract/router.ts`、`web/contract/console/**` |
+
+## 新增控制器流程（建议）
+
+1. 在合适的子目录新建 controller 文件（如 `api/controllers/console/foo/bar.py`）。
+2. 在 `controllers/<blueprint>/__init__.py` 注册（确保被 import 以触发装饰器）。
+3. 用 `Pydantic` 解析入参（参考 `controllers/common/controller_schemas.py`）。
+4. 调用相应的 `services/`，处理域异常 → HTTP 转化（在该蓝图的 `error.py` 中映射）。
+5. 多租户：从上下文读取 `tenant_id`，并贯穿到 services / repositories / models。
+6. 同步 `dev/generate_swagger_specs.py`（若需要），让 `packages/contracts` 的生成 contract 同步。
+7. 如需要前端调用，在 `web/contract/console/*` 注册到 `web/contract/router.ts`，前端通过 `consoleQuery.foo.bar.queryOptions(...)` 调用。

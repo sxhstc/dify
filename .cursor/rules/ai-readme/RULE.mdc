@@ -1,0 +1,87 @@
+---
+description: 'AI README 必读入口 - Dify 项目规则导航；开始任何任务前必须先读取本文件，了解项目上下文和规则清单'
+alwaysApply: false
+---
+
+# AI README - Dify 项目规则入口
+
+<project_overview>
+
+## 项目总览
+
+Dify 是一个开源 LLM 应用开发平台，提供工作流编排、RAG 流水线、Agent 能力、模型管理与可观测性。仓库以全栈 monorepo 组织：Python Flask 后端 + Next.js 前端 + Docker 部署 + 多个共享 packages + e2e + 客户端 SDK。
+
+```mermaid
+flowchart LR
+    Browser[Web 浏览器] -->|HTTP / WebSocket| Web[web/<br>Next.js 16 + React 19]
+    Web -->|REST + oRPC| API[api/<br>Flask 3 + DDD]
+    API -->|Celery Broker| Worker[Celery Worker / Beat]
+    API -->|SQLAlchemy| PG[(PostgreSQL)]
+    API -->|Redis Client| Redis[(Redis)]
+    API -->|Plugin Daemon| PluginDaemon[Plugin Daemon]
+    API -->|VDB Driver| VDB[(向量数据库<br>30+ 后端)]
+    API -->|Trace SDK| Trace[(可观测性<br>Langfuse / Opik / Phoenix 等)]
+    Worker --> PG
+    Worker --> Redis
+    Worker --> VDB
+```
+
+**核心能力**：
+
+- AI 工作流编排（可视化画布、节点驱动）
+- RAG Pipeline（文档摄取 → 解析 → 切片 → 嵌入 → 检索）
+- Agent 能力（Function Calling / ReAct + 50+ 内置工具）
+- 多模型接入（数十家厂商 + 自托管）
+- LLMOps（日志、追踪、评估、标注）
+- Backend-as-a-Service（业务集成 API）
+
+</project_overview>
+
+<generation_info>
+
+## 生成信息
+
+- **生成分支**: test_v1.0.1
+- **生成 Commit**: a06528756edd65fed935ffb3bcd31c5258a611d7
+- **生成时间**: 2026-05-11 16:25:00
+
+</generation_info>
+
+<quick_navigation>
+
+## 快速导航
+
+### 用户偏好备忘（固定）
+
+- [S] [备忘](./备忘.md) - 用户偏好与关键确认点；每次执行 ai-readme 前必读
+
+### AI 生成文档（generated/）
+
+- [x] [项目结构](./generated/项目结构.mdc) - 顶层目录树、模块清单、依赖关系；当需要了解代码组织时使用 (2026-05-11 16:25:30)
+- [x] [技术架构](./generated/技术架构.mdc) - 全栈分层、技术栈清单、外部组件；当需要了解技术选型时使用 (2026-05-11 16:26:00)
+- [x] [开发指南](./generated/开发指南.mdc) - 环境准备、`./dev/*` 启动脚本、配置说明；当需要搭建本地开发环境时使用 (2026-05-11 16:26:30)
+- [x] [核心流程](./generated/核心流程.mdc) - 关键业务路径与调用链；当需要理解系统运作时使用（含用户确认引导） (2026-05-11 16:27:00)
+- [x] [数据层](./generated/数据层.mdc) - PostgreSQL 表结构、Entity 关系、向量库适配；当需要了解数据结构时使用 (2026-05-11 16:27:30)
+- [x] [状态管理](./generated/状态管理.mdc) - Zustand / Jotai / TanStack Query / nuqs 分工；当需要修改前端状态层时使用 (2026-05-11 16:28:00)
+- [x] [API接口](./generated/API接口.mdc) - 控制器分组、路由前缀、鉴权方式；当需要调用或新增 API 时使用 (2026-05-11 16:28:30)
+- [x] [组件接口](./generated/组件接口.mdc) - `dify-ui` / `web/app/components` 关键组件清单；当需要使用或扩展前端组件时使用 (2026-05-11 16:29:00)
+- [x] [测试框架](./generated/测试框架.mdc) - pytest / Vitest / Cucumber / Storybook 分布；当需要编写测试时使用 (2026-05-11 16:29:30)
+
+### 人工维护文档（manual/）
+
+- [x] [业务知识](./manual/业务知识.mdc) - 项目背景、领域术语、业务流程；当需要理解业务上下文时使用 (2026-05-11 16:30:00)
+- [x] [边界定义](./manual/边界定义.mdc) - 模块职责、跨仓库协作；当需要明确模块职责或跨项目协作时使用 (2026-05-11 16:30:00)
+- [x] [团队标准](./manual/团队标准.mdc) - Git 规范、质量门禁；当需要了解团队开发规范时使用 (2026-05-11 16:30:00)
+- [x] [历史经验](./manual/历史经验.mdc) - 踩坑记录、解决方案；AI 写代码或做方案前必读 (2026-05-11 16:30:00)
+
+### 外部参考文档（按需查阅，非自动加载）
+
+> 这些文档是仓库已有内容（不属于 `.cursor/rules/`），AI 不会自动加载；当任务命中对应主题时由 AI 主动 `Read` 即可，避免与规则文档重复维护。
+
+- [docs/zh-CN/local-dev.md](../../../docs/zh-CN/local-dev.md) - 本地源码 / Docker 启动完整中文指南，含源码模式黑框报错说明（与 `generated/开发指南.mdc` 互为权威与摘要）
+- [docs/zh-CN/README.md](../../../docs/zh-CN/README.md) - 项目主 README 中文翻译版
+- [docs/zh-CN/CONTRIBUTING.md](../../../docs/zh-CN/CONTRIBUTING.md) - 贡献指南中文翻译版
+- [docs/eu-ai-act-compliance.md](../../../docs/eu-ai-act-compliance.md) - EU AI Act 合规说明
+- [docs/weaviate/WEAVIATE_MIGRATION_GUIDE/README.md](../../../docs/weaviate/WEAVIATE_MIGRATION_GUIDE/README.md) - Weaviate 迁移指南
+
+</quick_navigation>

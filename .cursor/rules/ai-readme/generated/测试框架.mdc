@@ -1,0 +1,220 @@
+---
+description: '测试框架 - Dify pytest / Vitest / Cucumber / Storybook 分布与运行；当需要编写测试时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# 测试框架
+
+## 测试金字塔
+
+```mermaid
+flowchart TB
+    Unit[单元测试<br>后端 pytest unit_tests<br>前端 Vitest + RTL]
+    Container[容器集成<br>后端 pytest test_containers_integration_tests<br>使用 testcontainers]
+    E2E[端到端<br>e2e/<br>Cucumber + Playwright + 真实 backend/frontend/middleware]
+    Story[Storybook<br>UI 组件预览与交互校对]
+
+    Unit --> Container --> E2E
+    Unit --> Story
+```
+
+## 后端测试（pytest）
+
+| 项 | 配置 / 路径 |
+| --- | --- |
+| 配置 | `api/pytest.ini`（含 `--cov=./api --cov-branch --cov-report=json/xml --import-mode=importlib`） |
+| 测试根目录 | `api/tests/` |
+| 单元测试 | `api/tests/unit_tests/`（`services/` / `tasks/` / `tools/` / `core/` / `controllers/` / `factories/` / `extensions/` / `repositories/` / `libs/` / `utils/` 等） |
+| 容器集成测试 | `api/tests/test_containers_integration_tests/`（CI-only，不要求本地跑通） |
+| 共享 fixtures | `api/tests/fixtures/`（含 `workflow/*.yml` 等典型 DSL） |
+| 测试工具 | `api/tests/workflow_test_utils.py` |
+| 命令入口 | `dev/pytest/pytest_unit_tests.sh` / `pytest_full.sh` / `pytest_vdb.sh` / `pytest_config_tests.py` |
+| Mock 环境变量 | `api/pytest.ini` 的 `[pytest.env]` 段已注入 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MOCK_SWITCH=true` 等占位值 |
+
+### 后端测试运行
+
+```bash
+# 全量
+uv run --project api pytest
+
+# 单元测试
+uv run --project api pytest tests/unit_tests/
+
+# 集成测试（一般 CI 跑）
+uv run --project api pytest tests/test_containers_integration_tests/
+
+# 覆盖率
+uv run --project api pytest --cov-report=html
+
+# 单个文件 / 单个用例
+uv run --project api pytest tests/unit_tests/services/test_app_service.py
+uv run --project api pytest tests/unit_tests/services/test_app_service.py::TestAppService::test_create_app
+```
+
+### 后端测试约定（`AGENTS.md` + `api/AGENTS.md`）
+
+- TDD：red → green → refactor
+- 用 Arrange-Act-Assert 结构组织测试
+- 强类型，避免 `Any`
+- 使用 `pytest-mock`、`pytest-env`、`pytest-cov`、`pytest-benchmark`、`pytest-timeout`、`pytest-xdist`
+- 集成测试使用 `testcontainers`
+- 不在 Agent 工作流中启动长进程；测试本身可正常 run
+
+### 后端代码质量配套
+
+| 工具 | 命令 |
+| --- | --- |
+| Ruff（lint + format） | `make lint` / `make format`（或 `uv run ruff check --fix ./` + `uv run ruff format ./`） |
+| basedpyright | `uv run basedpyright .`（或 `make type-check` / `dev/basedpyright-check`） |
+| pyrefly | `dev/pyrefly-check-local` |
+| ty 检查 | `dev/ty-check` |
+| 一键格式化 | `dev/reformat` |
+
+## 前端测试（Vitest + React Testing Library）
+
+| 项 | 配置 / 路径 |
+| --- | --- |
+| 测试运行器 | Vitest（基于 `vite-plus` 即 `vp test`） |
+| 配置 | `web/vite.config.ts`（`test.environment = happy-dom`、`pool = threads`、`globals = true`、`setupFiles = ['./vitest.setup.ts']`、`coverage.provider = v8`） |
+| 全局 setup | `web/vitest.setup.ts` |
+| 断言扩展 | `@testing-library/jest-dom/vitest`（已在 setup 中 `expect.extend`） |
+| Canvas mock | `vitest-canvas-mock` |
+| 测试位置 | 与源码同目录的 `__tests__/` 子目录（也可见 `web/__tests__/` 顶层集成测试） |
+| Storybook | `pnpm -C web storybook`（端口 6006） |
+| 文档 | `web/docs/test.md`（必读）+ `web/CLAUDE.md` |
+
+### `vitest.setup.ts` 关键全局设置
+
+| 项 | 行为 |
+| --- | --- |
+| Headless UI act 警告抑制 | 过滤 `TransitionRootFn ... not wrapped in act` |
+| `Element.getAnimations` polyfill | 保证 happy-dom 兼容 |
+| `ResizeObserver` 全局 mock | 避免组件因没有该 API 报错 |
+| `IntersectionObserver` 全局 mock | 同上 |
+| `globalThis.fetch` 全局 mock | 默认返回 200 + 空 JSON，避免 ECONNREFUSED |
+| `cleanup()` after each | 包在 `act` 中，避免 React 19 scheduler 报错 |
+| `vi.mock('@/hooks/use-clipboard')` | 默认 mock 复制 hook |
+| `vi.mock('zustand')` | 自动 reset stores（按官方测试指南） |
+| `vi.mock('react-i18next')` | 用 `web/test/i18n-mock` 提供的 mock |
+| `vi.mock('@floating-ui/react')` | 用 `data-floating-ui-portal` 替代 Portal |
+| `vi.mock('@monaco-editor/react')` | 替换为 `<textarea data-testid="monaco-editor">` |
+| `localStorage` mock | 每个 `beforeEach` 重建；提供 `getItem/setItem/removeItem/clear` |
+
+### 前端测试运行
+
+```bash
+pnpm -C web test                  # 全量（实际通过 vp test）
+pnpm -C web test:watch            # watch
+pnpm -C web test:coverage         # 覆盖率（v8）
+# 调试单个：在 web/ 目录下
+pnpm exec vitest --run path/to/file.spec.tsx
+pnpm exec vitest --run -t "test name"
+```
+
+> 仓库要求：因为使用 Vite+，请使用 `vp` 命令体系（`vp test` 等），而不是直接 `vitest`。
+
+### 前端测试约定（`web/AGENTS.md` + `frontend-testing` skill）
+
+- 测试位置：`__tests__/` 与源码同目录
+- 必读：`web/docs/test.md`（包含命名、覆盖率、mock、断言、文件组织等具体要求）
+- 复杂组件：先 `pnpm analyze-component <path>`，复杂度 / 行数超阈值时优先重构再测
+- 强类型，禁用 `any`
+- 单测必须无网络：依赖 setup 中的 `fetch` mock
+- 与状态层集成时用 `web/test/nuqs-testing.ts` 等工具
+- Overlay 测试遵循 `dify-ui` 的 portal/z-index 规范
+
+### 前端代码质量配套
+
+| 工具 | 命令 |
+| --- | --- |
+| ESLint（含 `@antfu/eslint-config`、`react-refresh`、`tanstack/query`、`storybook` 等插件） | `pnpm lint:fix`（推荐） / `pnpm -C web lint` |
+| tsslint | `pnpm -C web lint:tss` |
+| 类型检查 | `pnpm -C web type-check`（基于 `tsgo`） |
+| knip 死代码 | `pnpm -C web knip` |
+
+## E2E 测试（`e2e/`，Cucumber + Playwright）
+
+| 项 | 路径 / 命令 |
+| --- | --- |
+| 框架 | Cucumber.js + Playwright |
+| 配置 | `e2e/cucumber.config.ts`（默认 tags：`not @fresh and not @skip`，timeout 60s，并行 1） |
+| Feature 文件 | `e2e/features/<capability>/*.feature` |
+| Step 定义 | `e2e/features/step-definitions/<capability>/*.ts` |
+| 共享 World / Hooks | `e2e/features/support/world.ts`、`hooks.ts` |
+| Web 服务管理 | `e2e/support/web-server.ts` |
+| 编排脚本 | `e2e/scripts/setup.ts`、`e2e/scripts/run-cucumber.ts` |
+| 报告 | `e2e/cucumber-report/`（HTML / JSON / 失败截图与 HTML 抓取） |
+| 安装 | `pnpm -C e2e e2e:install`（首次安装 Playwright 浏览器） |
+| 校验 | `pnpm -C e2e check`（格式化 / lint / 类型） |
+
+### 常用命令
+
+```bash
+# 已认证回归（默认排除 @fresh）
+pnpm -C e2e e2e
+
+# 全量（含全新安装）
+pnpm -C e2e e2e:full
+
+# 按 tag 跑
+pnpm -C e2e e2e -- --tags @smoke
+
+# 头模式 / 慢速
+pnpm -C e2e e2e:headed -- --tags @smoke
+E2E_SLOW_MO=500 pnpm -C e2e e2e:headed -- --tags @smoke
+
+# 中间件 up / down
+pnpm -C e2e e2e:middleware:up
+pnpm -C e2e e2e:middleware:down
+
+# 重置 E2E 持久化状态（数据库 / 向量 / 插件 daemon / 报告 / 鉴权 state）
+pnpm -C e2e e2e:reset
+```
+
+### E2E 约定（`e2e/AGENTS.md`）
+
+- Tag：每个 feature/scenario 必须带 capability tag（如 `@apps`、`@auth`、`@datasets`）
+- 鉴权：默认共享 storageState；`@unauthenticated` 用全新 BrowserContext；`@fresh` 仅 `e2e:full` 跑
+- Step：用 `async function`，`this` 类型为 `DifyWorld`；一个 step = 一个用户操作或一个断言
+- Locator 优先级：`getByRole` > `getByLabel` > `getByPlaceholder` > `getByText` > `getByTestId`，避免裸 CSS/XPath
+- 断言：用 `@playwright/test` 的 `expect` 自动等待与重试，禁用 `waitForTimeout` 轮询
+- 失败诊断：`After` hook 自动截图 + HTML dump + console error 抓取
+
+## Storybook
+
+| 项 | 命令 / 路径 |
+| --- | --- |
+| 启动 | `pnpm -C web storybook`（端口 6006） |
+| 构建 | `pnpm -C web storybook:build` |
+| 配置 | `web/.storybook/`（`preview.tsx`、装饰器） |
+| 代表 stories | `packages/dify-ui/src/**/*.stories.tsx`、`web/app/components/base/**/*.stories.tsx` |
+
+## 常见错误及解决
+
+| 报错 | 原因 / 解决 |
+| --- | --- |
+| 后端：`make lint` 报错 | `uv run ruff check --fix ./` 自动修复，必要时 `make format` |
+| 后端：`testcontainers` 启动失败 | 这些是 CI-only 集成测试，本地不要求跑通；查看 `tests/test_containers_integration_tests/conftest.py` |
+| 后端：`OPENAI_API_KEY` 等 | 已在 `pytest.ini` 注入 mock 值；如本地仍报错，`MOCK_SWITCH=true` 已默认开启 |
+| 前端：`window is not defined` | 多半是测试触发了 React 19 scheduler；用 `vitest.setup.ts` 中的 `act(cleanup)`，组件内避免 SSR 期访问 window |
+| 前端：`fetch ECONNREFUSED localhost:5001` | `vitest.setup.ts` 已 mock 全局 `fetch`；自定义 fetch 时记得不要直接覆盖全局 |
+| 前端：Headless UI act 警告 | 已在 setup 中过滤 `TransitionRootFn` 警告 |
+| 前端：Monaco / Floating UI 导致 jsdom 报错 | 已 mock `@monaco-editor/react`、`@floating-ui/react.FloatingPortal` |
+| 前端：测试时 i18n key 显示原文 | `vitest.setup.ts` mock 了 `react-i18next`，按 mock 行为校验 |
+| E2E：`@fresh` 在 `pnpm e2e` 里不跑 | 默认 tag 已排除；用 `pnpm e2e:full` 才会跑 |
+| E2E：浏览器没安装 | 先 `pnpm -C e2e e2e:install` |
+| E2E：报告找不到 | 默认在 `e2e/cucumber-report/`；HTML 报告可 `open cucumber-report/report.html` |
+
+## 调试技巧
+
+| 场景 | 技巧 |
+| --- | --- |
+| pytest 单用例调试 | `uv run --project api pytest -k "<name>" -s` |
+| Vitest 单用例调试 | `pnpm exec vitest --run -t "<name>"` 或在 IDE 接 Vitest 调试 |
+| E2E 头模式 | `pnpm -C e2e e2e:headed -- --tags @smoke` |
+| E2E 步骤慢放 | `E2E_SLOW_MO=500` |
+| E2E 失败抓取 | 自动写到 `cucumber-report/artifacts/` |
+| 仅编译类型问题 | 后端 `uv run basedpyright .`；前端 `pnpm -C web type-check` |
+| Storybook 调试组件 | `pnpm -C web storybook` 直接预览 |

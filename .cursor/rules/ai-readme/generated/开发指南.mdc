@@ -1,0 +1,187 @@
+---
+description: '开发指南 - 环境准备、./dev/* 启动脚本、配置说明；当需要搭建本地开发环境时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# 开发指南
+
+> 本仓库提供两种本地启动方式。详细中文说明同时请参考 `docs/zh-CN/local-dev.md`。
+>
+> - 方式 A：Docker Compose 一键（最快体验）
+> - 方式 B：源码开发（推荐二开，含 `./dev/*` 脚本与 vinext 默认前端）
+
+## 环境准备
+
+| 依赖 | 要求版本 | 校验命令 | 备注 |
+| --- | --- | --- | --- |
+| Docker Desktop | 已启动且 daemon 可用 | `docker run --rm hello-world` | macOS 必装；Linux 用 docker engine |
+| Docker Compose | v2 内置或 `docker-compose` | `docker compose version` 或 `docker-compose version` | `dify-compose` 自动适配两种 |
+| Node.js | `^22.22.1`（仓库根 `engines`） | `node -v` | 推荐 `node@22`（Homebrew 或 nvm） |
+| pnpm | `pnpm@11.0.8`（根 `packageManager`） | `pnpm -v` | 推荐 `corepack enable` |
+| Python | `~=3.12.0`（`api/pyproject.toml`） | `python3.12 --version` | 由 uv 自动管理 |
+| uv | 任意现代版本 | `uv --version` | 后端包管理（替代 poetry） |
+
+> 注意：仓库 `api/AGENTS.md` 强制后端使用 `uv run --project api ...` 形式调用 CLI。
+
+## 启动方式 A：Docker Compose 一键
+
+```bash
+cd docker
+./dify-compose up -d              # macOS / Linux
+# 或 PowerShell：./dify-compose.ps1 up -d
+```
+
+| 操作 | 命令 |
+| --- | --- |
+| 启动 | `./dify-compose up -d` |
+| 停止 | `./dify-compose down` |
+| 重启 | `./dify-compose restart` |
+| 状态 | `./dify-compose ps` |
+| 日志 | `./dify-compose logs -f --tail=200` |
+
+- 安装初始化页面：`http://localhost/install`
+- 镜像由 `langgenius/*` 提供；可在 `docker/.env` 覆盖默认配置
+- 默认值在 `docker/.env.default`，完整参考在 `docker/.env.example`
+
+## 启动方式 B：源码开发（推荐二开）
+
+源码模式下中间件运行在 Docker，**API 与 Web 是宿主机独立进程**。
+
+### 步骤
+
+| 顺序 | 命令 | 作用 | 是否常驻 |
+| --- | --- | --- | --- |
+| 1 | `./dev/setup` | 复制 `.env`，安装后端依赖（`uv sync --group dev`），安装前端依赖（`pnpm -w install`） | 一次性 |
+| 2 | `./dev/start-docker-compose` | 启动 PostgreSQL / Redis / Weaviate / Sandbox / SSRF Proxy 等中间件容器 | 是（容器后台） |
+| 3 | `./dev/start-api` | 后端 API：`uv run flask db upgrade` → `uv run flask run --host 0.0.0.0 --port 5001 --debug` | 是（终端不关） |
+| 4 | `./dev/start-web` | 前端 dev server（默认 vinext） | 是（终端不关） |
+| 5 | `./dev/start-worker` | Celery Worker（异步任务，无则部分功能不执行） | 强烈建议常驻 |
+| 6（可选） | `./dev/start-beat` | Celery Beat（计划任务） | 视需要 |
+
+### `./dev/*` 脚本概览
+
+| 脚本 | 功能 | 关键实现 |
+| --- | --- | --- |
+| `setup` | 复制 `api/.env`、`web/.env.local`、`docker/middleware.env`，运行 `uv sync --group dev` 与 `pnpm install` | `dev/setup` |
+| `start-docker-compose` | `docker compose --env-file middleware.env -f docker-compose.middleware.yaml -p dify up -d` | `dev/start-docker-compose` |
+| `start-api` | 切到 `api/`，先 `uv run flask db upgrade`，再 `uv run flask run --host 0.0.0.0 --port 5001 --debug` | `dev/start-api` |
+| `start-web` | 默认 `pnpm -C web dev:vinext`；`NEXT_USE_NEXT_DEV=true` 切回 `next dev --webpack`；`NEXT_ENABLE_INSPECT=true` 追加 `--inspect`（需后者前置） | `dev/start-web` |
+| `start-worker` | 启动 Celery worker（默认 gevent pool），队列默认按 `EDITION` 自动选择；支持 `-q/-c/-P/--loglevel/-e` | `dev/start-worker` |
+| `start-beat` | 启动 Celery beat 调度器；可指定 `--loglevel` / `--scheduler` | `dev/start-beat` |
+| `reformat` | 后端代码格式化（Ruff） | `dev/reformat` |
+| `basedpyright-check` | 后端类型检查 | `dev/basedpyright-check` |
+| `pyrefly-check-local` | 本地 pyrefly 类型检查 | `dev/pyrefly-check-local` |
+| `ty-check` | 类型门禁 | `dev/ty-check` |
+| `sync-uv` / `update-uv` | uv 同步 / 升级辅助 | `dev/sync-uv`、`dev/update-uv` |
+| `pytest/*` | pytest 子套件入口（unit / vdb / full / config_tests） | `dev/pytest/` |
+
+### Worker 队列说明（`./dev/start-worker --help`）
+
+| 队列 | 用途 |
+| --- | --- |
+| `dataset` | RAG 索引与文档处理 |
+| `dataset_summary` | LLM 重型摘要索引（与 dataset 隔离） |
+| `priority_dataset` / `priority_pipeline` | 高优先级索引/流水线 |
+| `pipeline` | 标准 RAG 流水线任务 |
+| `workflow` | 社区版工作流触发 |
+| `workflow_professional` / `workflow_team` / `workflow_sandbox` | 云版本不同 tier 的工作流 |
+| `workflow_storage` | 工作流存储任务 |
+| `workflow_based_app_execution` | 基于工作流的应用执行 |
+| `schedule_poller` / `schedule_executor` | 计划任务轮询与执行 |
+| `triggered_workflow_dispatcher` / `trigger_refresh_executor` | 触发器派发与刷新 |
+| `mail` | 邮件通知 |
+| `ops_trace` | 链路追踪上报 |
+| `app_deletion` | 应用清理 |
+| `plugin` | 插件相关 |
+| `conversation` | 对话相关 |
+| `retention` | 数据保留与清理 |
+
+> 队列默认值由 `EDITION` 决定：`SELF_HOSTED`（默认）使用社区版集合；`CLOUD` 使用包含 tier 的集合。
+
+## 配置文件清单
+
+| 文件 | 来源 / 模板 | 作用 |
+| --- | --- | --- |
+| `api/.env` | `api/.env.example` | 后端运行时环境（DB / Redis / Vector / Storage / 邮件 / 第三方密钥） |
+| `web/.env.local` | `web/.env.example` | 前端运行时环境（API 前缀、socket、特性开关、Sentry/Amplitude key 等） |
+| `docker/middleware.env` | `docker/middleware.env.example` | 源码模式下中间件 compose 的环境覆盖 |
+| `docker/.env` | `docker/.env.default` + 必要时手动覆盖 | Docker 一键模式的环境（`./dify-compose` 首次启动会自动初始化并生成 SECRET_KEY） |
+| `docker/.env.example` | 仓库提供 | 完整可覆盖项参考清单 |
+| `docker/docker-compose.yaml` | 由 `docker-compose-template.yaml` + `generate_docker_compose` 生成 | 主 compose（API/Web/Worker/Plugin Daemon/...） |
+| `docker/docker-compose.middleware.yaml` | 仓库提供 | 中间件 compose（源码模式专用） |
+| `api/pyproject.toml` | 仓库提供 | uv 依赖、workspace、dependency-groups（dev/storage/tools/vdb-\*/trace-\*） |
+| `web/package.json` | 仓库提供 | 前端依赖 + 工作区脚本（catalog 协议） |
+| `package.json` | 仓库提供 | 根 workspace（`engines.node = ^22.22.1`，`packageManager = pnpm@11.0.8`） |
+| `pnpm-workspace.yaml` | 仓库提供 | pnpm workspace 成员（web、packages/\*、e2e、sdks/\*） |
+| `web/next.config.ts` | 仓库提供 | Next 配置（含 `NEXT_ENABLE_CODE_INSPECTOR` / `NEXT_USE_NEXT_DEV` 开关、Webpack `asyncWebAssembly` 实验） |
+| `web/vite.config.ts` | 仓库提供 | vinext / Vitest 配置（含 code-inspector 默认关闭开关） |
+| `web/tsconfig.json` | 仓库提供 | 严格 TypeScript |
+| `web/eslint.config.mjs` | 仓库提供 | 平面化 ESLint |
+| `api/.ruff.toml` | 仓库提供 | 后端 Ruff 规则 |
+| `api/pyrightconfig.json` | 仓库提供 | basedpyright 配置 |
+| `docker/nginx/nginx.conf.template` | 仓库提供 | Nginx 反代模板 |
+
+## 关键环境变量（节选）
+
+| 变量 | 位置 | 说明 |
+| --- | --- | --- |
+| `SECRET_KEY` | `api/.env` / `docker/.env` | Flask 加密密钥（首次启动 `./dify-compose` 会自动生成） |
+| `DB_HOST` / `DB_PORT` / `DB_USERNAME` / `DB_PASSWORD` / `DB_DATABASE` | `api/.env` | PostgreSQL 连接 |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | `api/.env` | Redis 连接 |
+| `VECTOR_STORE` | `api/.env` / `docker/.env` | 向量库类型（默认 weaviate；可切 30+ 后端） |
+| `STORAGE_TYPE` | `api/.env` | 存储后端（local / s3 / oss / cos / obs / gcs / azure-blob / supabase / opendal / tos 等） |
+| `EDITION` | 启动环境 | `SELF_HOSTED`（默认）/ `CLOUD`，影响 worker 队列默认值与功能开关 |
+| `COMPOSE_PROFILES` | `docker/.env` | 控制启用哪些可选服务（默认 `${VECTOR_STORE},${DB_TYPE}`） |
+| `EXPOSE_NGINX_PORT` / `EXPOSE_NGINX_SSL_PORT` | `docker/.env` | Nginx 暴露端口（一键模式默认 80） |
+| `NEXT_PUBLIC_API_PREFIX` | `web/.env.local` | 控制台 API 前缀（默认 `http://localhost:5001/console/api`） |
+| `NEXT_PUBLIC_PUBLIC_API_PREFIX` | `web/.env.local` | WebApp / Service API 前缀（默认 `http://localhost:5001/api`） |
+| `NEXT_PUBLIC_MARKETPLACE_API_PREFIX` / `_URL_PREFIX` | `web/.env.local` | Marketplace 集成 |
+| `NEXT_PUBLIC_EDITION` | `web/.env.local` | 前端 edition（与后端保持一致） |
+| `NEXT_PUBLIC_COOKIE_DOMAIN` | `web/.env.local` | 跨子域 cookie 共享 |
+| `NEXT_PUBLIC_SENTRY_DSN` / `NEXT_PUBLIC_AMPLITUDE_API_KEY` | `web/.env.local` | 前端可观测性（CE 通常留空） |
+| `NEXT_PUBLIC_DEPLOY_ENV` | `web/.env.local` | `DEVELOPMENT` / `PRODUCTION` / `TESTING` |
+| `NEXT_USE_NEXT_DEV` | shell 环境变量 | `true` 时切回 `next dev --webpack`，否则默认 vinext |
+| `NEXT_ENABLE_INSPECT` | shell 环境变量 | 在 next dev 链路下启用 `--inspect`（默认关闭，避免端口冲突） |
+| `NEXT_ENABLE_CODE_INSPECTOR` | shell 环境变量 | 启用 `code-inspector-plugin`（默认关闭，避免端口冲突） |
+
+> 完整环境变量请以 `.env.example` 为准。`api/AGENTS.md` 明确禁止后端直读 `os.environ`，需通过 `configs.dify_config`。
+
+## 浏览器访问入口
+
+| 模式 | 入口 |
+| --- | --- |
+| Docker 一键 | `http://localhost/install`（首次） / `http://localhost`（控制台） |
+| 源码开发 | `http://localhost:3000`（控制台）；后端 API：`http://localhost:5001` |
+
+## 调试方法
+
+| 场景 | 做法 |
+| --- | --- |
+| 后端断点调试 | VSCode/Cursor 接 `flask run --debug`；或 `uv run python -X dev` 加 `pdb` |
+| 后端 SQL 观察 | OpenTelemetry instrument 已开启 SQLAlchemy；可看 OTel collector |
+| 后端 Celery 任务 | `./dev/start-worker --loglevel DEBUG -q <queue>` |
+| 前端 vinext devtools | `pnpm -C web dev:vinext`；`http://localhost:3000` |
+| 前端 next dev + Node Inspector | `NEXT_USE_NEXT_DEV=true NEXT_ENABLE_INSPECT=true ./dev/start-web`，然后 chrome://inspect |
+| 前端组件 Storybook | `pnpm -C web storybook`，`http://localhost:6006` |
+| 前端 lint 修复 | `pnpm lint:fix` |
+| 前端类型检查 | `pnpm -C web type-check` |
+| 前端 Vitest 单测 | `pnpm -C web test` |
+| 前端 oRPC 调用调试 | `web/dev-proxy.config.ts` + `pnpm -C web dev:proxy`（连线上 API） |
+| Docker 容器排查 | `docker compose -p dify ps` / `logs -f` / `exec` |
+| 重置本地数据 | 清空 `docker/volumes/*`（注意：仓库内有初始化文件不要误删） |
+
+## 常见报错
+
+| 报错 | 处理 |
+| --- | --- |
+| `pnpm requires Node v22` / `node:sqlite` 找不到 | 把 Node 切到 22（`brew install node@22` + PATH 优先；或 `nvm use 22`） |
+| `uv: command not found` | `brew install uv` |
+| 端口 `9229` / `5678` 冲突 | 已在 `dev/start-web` / `next.config.ts` / `vite.config.ts` 默认关闭，必要时 `NEXT_USE_NEXT_DEV=false`（默认 vinext） |
+| `loro-crdt wasm` 编译失败 | 用 vinext（默认链路）；强制 webpack 时 `next.config.ts` 已开 `asyncWebAssembly` |
+| `/apps` 出现 `Hydration failed` | 浏览器扩展注入导致；改用无痕窗口或禁用扩展 |
+| 配置页 `ResizeObserver loop completed` | 已在 `web/app/components/base/chat/chat/use-chat-layout.ts` 做按帧降噪；如仍出现可忽略 |
+| `apps.workflowOnlineUsers Invalid input shape` | 已在 `web/app/components/apps/hooks/use-workflow-online-users.ts` 修复（按 `enabled` 走双分支） |
+
+> 详细中文文档：`docs/zh-CN/local-dev.md`。

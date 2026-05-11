@@ -1,0 +1,502 @@
+---
+description: '项目结构 - Dify 顶层目录树、模块清单、依赖关系；当需要了解代码组织时使用'
+alwaysApply: false
+---
+
+<!-- AI生成，可根据团队规范更新 -->
+
+# 项目结构
+
+## 顶层目录树
+
+```
+dify/                                # 仓库根（pnpm + uv 双 workspace）
+├── api/                             # 后端 Python Flask 应用（DDD + Clean Architecture）
+├── web/                             # 前端 Next.js 16 + React 19 应用
+├── docker/                          # Docker Compose 与各中间件配置
+├── docs/                            # 多语言文档（zh-CN、ja-JP、en-US 等）
+├── e2e/                             # 端到端测试（Playwright + Cucumber）
+├── packages/                        # pnpm workspace 共享包
+├── sdks/                            # 客户端 SDK（nodejs / php）
+├── scripts/                         # 工程脚本
+├── dev/                             # 本地开发统一入口脚本
+├── images/                          # README 等用图
+├── .cursor/                         # Cursor 规则与 AI README
+├── .agents/                         # AI Agent skill 定义
+├── .github/                         # CI 工作流、issue 模板等
+├── .devcontainer/                   # VSCode Dev Container 配置
+├── package.json                     # 根 workspace 元数据（pnpm@11.0.8 + Node ^22.22.1）
+├── pnpm-workspace.yaml              # pnpm workspace 配置
+├── pnpm-lock.yaml                   # pnpm 依赖锁文件
+├── README.md                        # 项目主 README（英文）
+├── AGENTS.md                        # 面向 AI Agent 的项目指南
+├── CLAUDE.md                        # Claude 模型专用指引
+├── CONTRIBUTING.md                  # 贡献指南
+├── LICENSE                          # 许可证（基于 Apache 2.0 + 附加条款）
+└── SECURITY.md                      # 安全策略
+```
+
+## 后端 api/ 详细结构
+
+```
+api/                                 # 后端工程根
+├── app.py                           # Flask 应用 WSGI 入口（gunicorn 调用）
+├── app_factory.py                   # Flask app 工厂函数（注册扩展、蓝图、中间件）
+├── dify_app.py                      # Dify 自定义 Flask 子类
+├── celery_entrypoint.py             # Celery worker 入口
+├── celery_healthcheck.py            # Celery 健康检查
+├── gunicorn.conf.py                 # 生产 gunicorn 配置
+├── pyproject.toml                   # uv 依赖与 workspace 定义
+├── pytest.ini                       # pytest 主配置
+├── pyrightconfig.json               # 类型检查配置
+├── pyrefly-local-excludes.txt       # pyrefly 类型检查排除清单
+├── uv.lock                          # uv 依赖锁文件
+├── Dockerfile                       # API 镜像构建文件
+├── AGENTS.md                        # 后端 AI 工作指引
+├── README.md                        # 后端启动与测试说明
+├── commands/                        # Flask CLI 命令（reset_password 等）
+├── configs/                         # 配置类（dify_config 单一入口）
+│   ├── app_config.py                # 主配置聚合
+│   ├── deploy/                      # 部署相关配置
+│   ├── enterprise/                  # 企业版配置
+│   ├── extra/                       # 扩展配置
+│   ├── feature/                     # 功能开关
+│   ├── middleware/                  # 中间件配置（vdb、storage 等子目录）
+│   ├── observability/               # 可观测性配置
+│   ├── packaging/                   # 打包元信息
+│   └── remote_settings_sources/     # 远程配置源
+├── constants/                       # 全局常量
+├── context/                         # 请求/执行上下文
+├── contexts/                        # 兼容旧 context 模块
+├── controllers/                     # 控制器层（HTTP 入口）
+│   ├── console/                     # 控制台 API（前端控制台调用）
+│   ├── service_api/                 # 对外 Service API（终端用户调用）
+│   ├── web/                         # WebApp API（分享应用、嵌入聊天）
+│   ├── files/                       # 文件上传/预览
+│   ├── inner_api/                   # 内部 API（仅同集群可用）
+│   ├── mcp/                         # MCP 协议入口
+│   ├── trigger/                     # Webhook 触发器入口
+│   ├── common/                      # 控制器共享 helpers / fields
+│   └── fastopenapi.py               # FastOpenAPI 集成
+├── core/                            # 领域核心（业务无 HTTP 依赖）
+│   ├── agent/                       # Agent 执行器（CoT、Function Call）
+│   ├── app/                         # 应用运行时（Chat / Workflow / Completion）
+│   ├── workflow/                    # 工作流引擎（节点、边、运行）
+│   ├── rag/                         # RAG 流水线（提取、切分、嵌入、检索）
+│   ├── tools/                       # 工具系统（内置 + 插件 + MCP）
+│   ├── trigger/                     # 触发器（Webhook、Schedule）
+│   ├── datasource/                  # 数据源接入（在线文档、网盘等）
+│   ├── plugin/                      # 插件运行时与 daemon 客户端
+│   ├── llm_generator/               # LLM 辅助生成（提示词、规则）
+│   ├── moderation/                  # 内容审核
+│   ├── memory/                      # 对话记忆
+│   ├── prompt/                      # 提示词模板与变换
+│   ├── ops/                         # 链路追踪适配
+│   ├── helper/                      # 通用 helpers（加密、HTTP 池、SSRF 代理）
+│   ├── mcp/                         # MCP 协议核心
+│   ├── callback_handler/            # Agent / 索引回调
+│   ├── external_data_tool/          # 外部数据工具
+│   ├── entities/                    # 核心领域实体
+│   ├── errors/                      # 核心异常
+│   ├── extension/                   # 可扩展点（base/code/api 三类）
+│   ├── repositories/                # 仓储抽象（Celery 等大表分流）
+│   ├── schemas/                     # 内置 Schema（v1）
+│   ├── telemetry/                   # 自身遥测
+│   ├── logging/                     # 日志上下文
+│   ├── db/                          # 数据库辅助
+│   ├── base/                        # 基础类
+│   ├── indexing_runner.py           # RAG 索引运行入口
+│   ├── model_manager.py             # 模型管理器
+│   ├── provider_manager.py          # 模型供应商管理
+│   └── hosting_configuration.py     # 托管配置
+├── services/                        # 应用服务（编排领域用例）
+│   ├── account_service.py           # 账户与登录
+│   ├── app_service.py               # 应用增删改查
+│   ├── app_generate_service.py      # 应用生成（聊天/工作流入口）
+│   ├── app_dsl_service.py           # 应用 DSL 导入导出
+│   ├── workflow_service.py          # 工作流服务
+│   ├── workflow_run_service.py      # 工作流运行
+│   ├── workflow_collaboration_service.py # 工作流多人协作
+│   ├── workflow_draft_variable_service.py # 工作流草稿变量
+│   ├── workflow_event_snapshot_service.py # 工作流事件快照
+│   ├── workflow_app_service.py      # 工作流应用
+│   ├── workflow_restore.py          # 工作流恢复
+│   ├── workflow_comment_service.py  # 工作流评论
+│   ├── conversation_service.py      # 对话
+│   ├── annotation_service.py        # 标注
+│   ├── dataset_service.py           # 知识库
+│   ├── knowledge_service.py         # 知识检索
+│   ├── hit_testing_service.py       # 命中测试
+│   ├── external_knowledge_service.py # 外部知识库
+│   ├── recommended_app_service.py   # 推荐应用
+│   ├── recommend_app/               # 推荐应用源（buildin/database/remote）
+│   ├── rag_pipeline/                # RAG 流水线服务（含模板与策略）
+│   ├── plugin/                      # 插件管理
+│   ├── trigger/                     # 触发器（webhook、schedule、provider）
+│   ├── tools/                       # 工具管理（内置 / API / MCP）
+│   ├── auth/                        # 第三方认证（jina、firecrawl、apikey）
+│   ├── retention/                   # 数据保留（清理过期工作流/对话）
+│   ├── enterprise/                  # 企业版同步
+│   ├── document_indexing_proxy/     # 索引代理（普通/重复/批处理）
+│   ├── billing_service.py           # 计费
+│   ├── credit_pool_service.py       # 积分池
+│   ├── quota_service.py             # 配额
+│   ├── feature_service.py           # 功能开关
+│   ├── feedback_service.py          # 反馈
+│   ├── webapp_auth_service.py       # WebApp 鉴权
+│   ├── tag_service.py               # 标签
+│   ├── metadata_service.py          # 元数据
+│   ├── api_token_service.py         # API Token
+│   ├── api_based_extension_service.py # 基于 API 的扩展
+│   ├── code_based_extension_service.py # 基于代码的扩展
+│   ├── operation_service.py         # 运营
+│   ├── ops_service.py               # Ops 配置
+│   ├── attachment_service.py        # 附件
+│   ├── file_service.py              # 文件
+│   ├── saved_message_service.py     # 收藏消息
+│   ├── web_conversation_service.py  # WebApp 对话
+│   ├── advanced_prompt_template_service.py # 高级提示词模板
+│   ├── model_provider_service.py    # 模型供应商
+│   ├── model_load_balancing_service.py # 模型负载均衡
+│   ├── datasource_provider_service.py # 数据源供应商
+│   ├── website_service.py           # 网站爬取
+│   ├── vector_service.py            # 向量服务
+│   ├── end_user_service.py          # 终端用户
+│   ├── human_input_service.py       # 人工输入
+│   ├── human_input_delivery_test_service.py # 人工输入投递测试
+│   ├── app_model_config_service.py  # 应用模型配置
+│   ├── app_task_service.py          # 应用任务
+│   ├── workflow/                    # 工作流子服务（queue_dispatcher / scheduler / converter）
+│   ├── entities/                    # Service 入参实体
+│   ├── errors/                      # 服务层异常
+│   └── clear_free_plan_tenant_expired_logs.py # 免费版清理脚本
+├── tasks/                           # Celery 异步任务
+│   ├── app_generate/                # 应用生成异步任务
+│   ├── annotation/                  # 标注索引任务
+│   ├── workflow_cfs_scheduler/      # 工作流任务调度
+│   ├── document_indexing_task.py    # 文档索引
+│   ├── batch_*.py                   # 批处理任务
+│   ├── clean_*.py                   # 清理任务
+│   ├── delete_*.py                  # 删除任务
+│   ├── enable_*.py / disable_*.py   # 段启停任务
+│   ├── generate_summary_index_task.py # 摘要索引
+│   ├── human_input_timeout_tasks.py # 人工输入超时
+│   ├── async_workflow_tasks.py      # 异步工作流
+│   ├── workflow_node_execution_tasks.py # 节点执行任务
+│   └── mail_*.py                    # 邮件类任务
+├── repositories/                    # 仓储层（DDD Repository）
+│   ├── factory.py                   # 仓储工厂
+│   ├── types.py                     # 仓储类型
+│   └── entities/                    # 仓储实体（如 workflow_pause）
+├── extensions/                      # Flask 扩展 / 第三方集成
+│   ├── ext_database.py              # SQLAlchemy
+│   ├── ext_redis.py                 # Redis
+│   ├── ext_celery.py                # Celery
+│   ├── ext_login.py                 # Flask-Login
+│   ├── ext_migrate.py               # Flask-Migrate
+│   ├── ext_blueprints.py            # 蓝图注册
+│   ├── ext_storage.py               # 存储抽象
+│   ├── ext_session_factory.py       # SQLAlchemy session 工厂
+│   ├── ext_otel.py                  # OpenTelemetry
+│   ├── ext_logging.py               # 日志配置
+│   ├── ext_logstore.py              # 日志存储（落库/Aliyun）
+│   ├── ext_sentry.py                # Sentry
+│   ├── ext_app_metrics.py           # 应用指标
+│   ├── ext_socketio.py              # SocketIO
+│   ├── ext_compress.py              # gzip 压缩
+│   ├── ext_orjson.py                # orjson 序列化
+│   ├── ext_proxy_fix.py             # 反向代理 fix
+│   ├── ext_request_logging.py       # 请求日志
+│   ├── ext_set_secretkey.py         # SECRET_KEY 校验
+│   ├── ext_timezone.py              # 时区
+│   ├── ext_mail.py                  # 邮件
+│   ├── ext_commands.py              # CLI 命令注册
+│   ├── ext_code_based_extension.py  # 代码扩展加载
+│   ├── ext_hosting_provider.py      # 托管厂商
+│   ├── ext_enterprise_telemetry.py  # 企业版遥测
+│   ├── ext_fastopenapi.py           # FastOpenAPI
+│   ├── ext_forward_refs.py          # 前向引用
+│   ├── ext_import_modules.py        # 模块导入
+│   └── storage/                     # 多云存储后端实现（含 huawei_obs 等）
+├── factories/                       # 工厂模块（file_factory / variable_factory）
+├── fields/                          # Flask-RESTX 字段定义
+├── libs/                            # 通用库（password、email_template、oauth 等）
+├── models/                          # SQLAlchemy 模型（24 个表家族）
+│   ├── base.py                      # TypeBase 基类
+│   ├── engine.py                    # 引擎
+│   ├── enums.py                     # 枚举
+│   ├── types.py                     # 自定义类型
+│   ├── account.py                   # 账户/租户
+│   ├── model.py                     # App / Conversation / Message 等核心
+│   ├── workflow.py                  # 工作流
+│   ├── dataset.py                   # 知识库
+│   ├── tools.py                     # 工具
+│   ├── trigger.py                   # 触发器
+│   ├── provider.py                  # 模型供应商
+│   ├── provider_ids.py              # 供应商标识
+│   ├── source.py                    # 数据源
+│   ├── api_based_extension.py       # API 扩展
+│   ├── comment.py                   # 评论
+│   ├── execution_extra_content.py   # 执行附加内容
+│   ├── human_input.py               # 人工输入
+│   ├── oauth.py                     # OAuth
+│   ├── task.py                      # 任务
+│   ├── web.py                       # Web 相关
+│   ├── _workflow_exc.py             # 工作流异常
+│   └── utils/                       # 模型工具
+├── migrations/                      # Alembic 数据库迁移版本
+├── providers/                       # uv workspace 子包
+│   ├── vdb/                         # 30+ 向量库适配（pgvector / weaviate / milvus / qdrant 等）
+│   └── trace/                       # 8 种链路追踪适配（langfuse / opik / phoenix 等）
+├── schedule/                        # 计划任务脚本（Celery Beat 入口）
+├── storage/                         # 本地/远程存储抽象与实现
+├── templates/                       # 邮件模板（含 brand / without-brand 两套）
+├── enterprise/                      # 企业版独立模块
+├── enums/                           # 全局枚举
+├── events/                          # 领域事件
+├── docker/                          # 后端镜像辅助
+├── dev/                             # 后端独有的本地开发脚本
+└── tests/                           # pytest 单元/集成/容器测试
+```
+
+## 前端 web/ 详细结构
+
+```
+web/                                 # 前端工程根
+├── package.json                     # next/react/vinext 等前端依赖（pnpm catalog 协议）
+├── tsconfig.json                    # TS 编译配置（@dify/tsconfig 共享）
+├── next.config.ts                   # Next.js 配置（含 Turbopack/Webpack 双链路）
+├── vite.config.ts                   # Vite/vinext 开发服配置
+├── env.ts                           # @t3-oss/env 类型化环境变量
+├── eslint.config.mjs                # ESLint 平面化配置
+├── eslint.constants.mjs             # ESLint 常量
+├── tsslint.config.ts                # tsslint 自定义规则
+├── postcss.config.js                # PostCSS / Tailwind
+├── knip.config.ts                   # knip 死代码扫描
+├── instrumentation-client.ts        # Sentry/客户端埋点
+├── proxy.ts                         # 开发代理
+├── dev-proxy.config.ts              # dev-proxy 配置
+├── next.config.ts / next-env.d.ts   # Next 配置与类型补丁
+├── global.d.ts                      # 全局类型
+├── vitest.setup.ts                  # Vitest 全局 setup（matchers、mock）
+├── AGENTS.md                        # 前端 AI 工作指引
+├── CLAUDE.md                        # Claude 指引（与根目录配合）
+├── README.md                        # 前端启动指南
+├── Dockerfile / Dockerfile.dockerignore # 前端镜像
+├── app/                             # Next.js App Router 根（页面 + 组件）
+│   ├── layout.tsx                   # 根布局（i18n / Theme / TanStack Query / Toast）
+│   ├── page.tsx                     # 根页（重定向到 /apps）
+│   ├── loading.tsx                  # 全局 loading
+│   ├── routePrefixHandle.tsx        # 路由前缀处理
+│   ├── styles/                      # 全局样式
+│   ├── (commonLayout)/              # 控制台主布局（apps、datasets、tools、plugins、explore 等）
+│   ├── (humanInputLayout)/          # 人工输入布局
+│   ├── (shareLayout)/               # 分享应用布局
+│   ├── account/                     # 账户中心
+│   ├── activate/                    # 激活
+│   ├── education-apply/             # 教育申请
+│   ├── forgot-password/             # 忘记密码
+│   ├── init/                        # 初始化向导
+│   ├── install/                     # 安装首启
+│   ├── reset-password/              # 重置密码
+│   ├── signin/                      # 登录
+│   ├── signup/                      # 注册
+│   ├── oauth-callback/              # OAuth 回调
+│   └── components/                  # 业务组件库（按业务域分组）
+├── service/                         # 旧版 service-* 调用层（迁移目标：oRPC contract）
+├── contract/                        # oRPC contract 定义（与后端 API 1:1 映射）
+│   ├── base.ts                      # contract 基类
+│   ├── router.ts                    # router 组合
+│   └── console/                     # 各业务域 contract（apps、tags、workflow、trigger 等）
+├── context/                         # React Context（i18n、provider、app）
+├── hooks/                           # 自定义 hooks（pay、breakpoints、document-title 等）
+├── features/                        # 业务垂直 feature（如 tag-management）
+├── models/                          # 前端业务模型/类型
+├── types/                           # 全局类型扩展
+├── utils/                           # 工具函数（含创建应用埋点等）
+├── plugins/                         # 自定义构建插件（vite/code-inspector 等）
+├── i18n/                            # 多语言资源（en-US/zh-Hans/...，按业务文件分割）
+├── i18n-config/                     # i18n 客户端 / 服务端实现
+├── public/                          # 静态资源（图标、SVG、in-site message）
+├── assets/                          # 工程内静态资源
+├── themes/                          # 主题资源
+├── config/                          # 配置常量
+├── constants/                       # 业务常量
+├── docs/                            # 前端文档（test.md、lint.md 等）
+├── docker/                          # 前端运行时入口脚本
+├── scripts/                         # 前端工程脚本（gen-icons / analyze-component）
+├── bin/                             # 嵌入式工具（uglify-embed）
+├── test/                            # 测试辅助
+├── __tests__/                       # 集成测试
+├── __mocks__/                       # 全局 mock
+└── next/                            # Next.js patch 包装
+```
+
+## 共享 packages/
+
+```
+packages/
+├── contracts/                       # 通过 openapi-ts 自动生成的 oRPC + Zod contract
+├── dify-ui/                         # UI 主组件库（overlay、portal、z-index 规范）
+├── dev-proxy/                       # 本地开发反向代理（连接线上后端）
+├── iconify-collections/             # 自定义图标集（svg → react component）
+├── migrate-no-unchecked-indexed-access/ # TypeScript 严格索引迁移脚本
+└── tsconfig/                        # 共享 tsconfig 基线
+```
+
+## docker/
+
+```
+docker/
+├── docker-compose.yaml              # 主 compose（API/Web/Worker/Sandbox/Plugin Daemon/Proxy 等）
+├── docker-compose.middleware.yaml   # 仅中间件（PostgreSQL / Redis / Weaviate / Sandbox / SSRF Proxy）
+├── docker-compose-template.yaml     # compose 模板（生成器输入）
+├── generate_docker_compose          # compose 生成脚本
+├── dify-compose / dify-compose.ps1  # 跨平台 compose 包装脚本（自动生成 SECRET_KEY）
+├── dify-env-sync.py / .sh           # env 同步脚本
+├── .env.default                     # 默认环境变量
+├── .env.example                     # 完整环境变量参考
+├── middleware.env.example           # 中间件 env 模板
+├── nginx/                           # Nginx 反向代理配置（template）
+├── ssrf_proxy/                      # SSRF 出网代理（squid）
+├── certbot/                         # Let's Encrypt 集成
+├── pgvector/                        # pgvector 容器入口
+├── elasticsearch/                   # ES 容器入口
+├── couchbase-server/                # Couchbase 容器入口
+├── tidb/                            # TiDB / TiFlash 配置
+├── iris/                            # InterSystems IRIS 容器
+├── startupscripts/                  # 启动脚本
+└── volumes/                         # 容器卷初始化文件
+```
+
+## 工程辅助目录
+
+| 目录 | 路径 | 作用 |
+| --- | --- | --- |
+| 本地开发脚本 | `dev/` | `setup` / `start-api` / `start-web` / `start-worker` / `start-beat` / `start-docker-compose` 等统一入口 |
+| 端到端测试 | `e2e/` | Playwright + Cucumber 场景 |
+| SDK | `sdks/nodejs-client`、`sdks/php-client` | 调用 Dify Service API 的官方客户端 |
+| 文档 | `docs/{lang}/README.md` | 多语言 README |
+| AI 规则 | `.cursor/rules/`、`.agents/skills/`、`.claude/` | Cursor / Claude / 通用 Agent 配置 |
+| Dev Container | `.devcontainer/` | VSCode Dev Container 一键开发环境 |
+
+## 模块清单（按职责）
+
+| 模块 | 路径 | 职责 |
+| --- | --- | --- |
+| 控制台 API | `api/controllers/console/` | 控制台前端调用的 REST 接口（应用、数据集、租户、计费等） |
+| Service API | `api/controllers/service_api/` | 对外开放的 API（终端用户使用） |
+| WebApp API | `api/controllers/web/` | WebApp（分享应用）使用的接口 |
+| 文件 API | `api/controllers/files/` | 文件上传/预览 |
+| MCP / Trigger | `api/controllers/mcp/`、`api/controllers/trigger/` | MCP 协议 + Webhook 触发器 |
+| Inner API | `api/controllers/inner_api/` | 内部 API（限同集群） |
+| 应用运行时 | `api/core/app/` | Chat / Workflow / Completion 应用执行 |
+| 工作流引擎 | `api/core/workflow/` | 节点系统、运行时、变量、回放 |
+| RAG | `api/core/rag/` | 文档抽取、切分、嵌入、检索 |
+| Agent | `api/core/agent/` | CoT / Function Call agent runner |
+| 工具 | `api/core/tools/` | 内置工具、API 工具、MCP 工具、Workflow as Tool |
+| 触发器 | `api/core/trigger/` | Webhook、Schedule、插件触发器 |
+| 插件 | `api/core/plugin/`、`api/services/plugin/` | Plugin Daemon 客户端、安装/升级/凭证 |
+| 模型管理 | `api/core/model_manager.py`、`api/core/provider_manager.py` | 模型生命周期、供应商抽象 |
+| LLM 辅助生成 | `api/core/llm_generator/` | 提示词、规则、结构化输出生成 |
+| 链路追踪 | `api/core/ops/` + `providers/trace/*` | Langfuse / Opik / Phoenix 等接入 |
+| 数据库模型 | `api/models/` | SQLAlchemy 模型 |
+| 数据迁移 | `api/migrations/` | Alembic 版本 |
+| 异步任务 | `api/tasks/` + `api/schedule/` | Celery worker + beat |
+| 仓储 | `api/repositories/` + `api/core/repositories/` | 大表数据访问抽象 |
+| 服务编排 | `api/services/` | 用例编排（账户、应用、工作流、知识库等） |
+| 前端控制台 | `web/app/(commonLayout)/` | apps/datasets/tools/plugins/explore 等控制台页面 |
+| 前端业务组件 | `web/app/components/` | 按业务域组织（chat、workflow、explore、apps...） |
+| oRPC Contract | `web/contract/` + `packages/contracts/` | 与后端 API 类型同步的 contract |
+| 服务调用 | `web/service/` | 旧版 service-\* 函数（迁移到 contract 中） |
+| UI 组件库 | `packages/dify-ui/` | 通用 overlay / portal / 基础组件 |
+| 图标库 | `packages/iconify-collections/` | 自定义图标集合 |
+| 开发代理 | `packages/dev-proxy/` | 本地开发连接线上 API |
+
+## 模块依赖图
+
+```mermaid
+graph TB
+    subgraph FE["前端 web/"]
+        webApp[app/<br>Next.js 路由 + 业务组件]
+        webContract[contract/<br>oRPC Contract]
+        webService[service/<br>旧版调用层]
+        difyUI[packages/dify-ui]
+        contractsPkg[packages/contracts]
+        iconify[packages/iconify-collections]
+    end
+
+    subgraph BE["后端 api/"]
+        ctrl[controllers/<br>HTTP 入口]
+        svc[services/<br>用例编排]
+        coreApp[core/app + core/workflow]
+        coreRag[core/rag]
+        coreAgent[core/agent + core/tools]
+        repo[repositories/]
+        models[models/]
+        tasksMod[tasks/<br>Celery]
+        schedule[schedule/<br>Beat]
+        plugins[core/plugin + services/plugin]
+        ops[core/ops + providers/trace]
+        vdb[providers/vdb/*]
+    end
+
+    subgraph Infra["基础设施"]
+        pg[(PostgreSQL)]
+        redis[(Redis)]
+        vdbStore[(向量数据库)]
+        pluginD[Plugin Daemon]
+        sandbox[Sandbox]
+        ssrf[SSRF Proxy]
+    end
+
+    webApp --> webContract
+    webApp --> webService
+    webApp --> difyUI
+    webApp --> iconify
+    webContract --> contractsPkg
+    webApp -->|HTTP| ctrl
+    webContract -->|oRPC| ctrl
+    webService -->|HTTP| ctrl
+
+    ctrl --> svc
+    svc --> coreApp
+    svc --> coreRag
+    svc --> coreAgent
+    svc --> repo
+    svc --> tasksMod
+    coreApp --> models
+    coreApp --> plugins
+    coreRag --> vdb
+    coreRag --> models
+    coreAgent --> plugins
+    repo --> models
+    tasksMod --> models
+    tasksMod --> coreRag
+    schedule --> tasksMod
+    plugins --> pluginD
+    ops --> redis
+
+    models --> pg
+    repo --> pg
+    tasksMod --> redis
+    coreApp --> sandbox
+    coreApp --> ssrf
+    vdb --> vdbStore
+```
+
+## 关键入口
+
+| 入口 | 文件 | 说明 |
+| --- | --- | --- |
+| 后端 WSGI | `api/app.py` + `api/app_factory.py` | gunicorn / flask run 入口 |
+| 后端 Celery | `api/celery_entrypoint.py` | Celery worker / beat 入口 |
+| 前端布局 | `web/app/layout.tsx` | Provider 链与 i18n 注入 |
+| 前端 Next 配置 | `web/next.config.ts` | Turbopack / Webpack 双链路、code-inspector 开关 |
+| 前端 Vite/vinext 配置 | `web/vite.config.ts` | dev:vinext 主链路 |
+| 本地开发 | `dev/setup`、`dev/start-*` | 一键 setup + 各服务启动 |
+| Docker 入口 | `docker/dify-compose`、`docker/docker-compose.yaml` | 一键部署 |
+
+## 循环依赖检测
+
+<!-- TODO: 待补充 - 当前未跑 import-linter 全量分析；后端使用 `import-linter` 已纳入 `dev` 依赖，可执行 `uv run lint-imports` 输出实际循环依赖结果 -->
