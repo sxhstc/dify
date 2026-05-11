@@ -21,6 +21,8 @@ export const useChatLayout = ({ chatList, sidebarCollapseState }: UseChatLayoutO
   const userScrolledRef = useRef(false)
   const isAutoScrollingRef = useRef(false)
   const prevFirstMessageIdRef = useRef<string | undefined>(undefined)
+  const containerResizeFrameRef = useRef<number | null>(null)
+  const footerResizeFrameRef = useRef<number | null>(null)
 
   const handleScrollToBottom = useCallback(() => {
     if (chatList.length > 1 && chatContainerRef.current && !userScrolledRef.current) {
@@ -77,8 +79,20 @@ export const useChatLayout = ({ chatList, sidebarCollapseState }: UseChatLayoutO
       const resizeContainerObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
           const { blockSize } = entry.borderBoxSize[0]!
-          chatContainerRef.current!.style.paddingBottom = `${blockSize}px`
-          handleScrollToBottom()
+          if (containerResizeFrameRef.current)
+            cancelAnimationFrame(containerResizeFrameRef.current)
+
+          containerResizeFrameRef.current = requestAnimationFrame(() => {
+            if (!chatContainerRef.current)
+              return
+
+            const nextPaddingBottom = `${blockSize}px`
+            if (chatContainerRef.current.style.paddingBottom !== nextPaddingBottom)
+              chatContainerRef.current.style.paddingBottom = nextPaddingBottom
+
+            handleScrollToBottom()
+            containerResizeFrameRef.current = null
+          })
         }
       })
       resizeContainerObserver.observe(chatFooterRef.current)
@@ -86,7 +100,19 @@ export const useChatLayout = ({ chatList, sidebarCollapseState }: UseChatLayoutO
       const resizeFooterObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
           const { inlineSize } = entry.borderBoxSize[0]!
-          chatFooterRef.current!.style.width = `${inlineSize}px`
+          if (footerResizeFrameRef.current)
+            cancelAnimationFrame(footerResizeFrameRef.current)
+
+          footerResizeFrameRef.current = requestAnimationFrame(() => {
+            if (!chatFooterRef.current)
+              return
+
+            const nextWidth = `${inlineSize}px`
+            if (chatFooterRef.current.style.width !== nextWidth)
+              chatFooterRef.current.style.width = nextWidth
+
+            footerResizeFrameRef.current = null
+          })
         }
       })
       resizeFooterObserver.observe(chatContainerRef.current)
@@ -94,6 +120,10 @@ export const useChatLayout = ({ chatList, sidebarCollapseState }: UseChatLayoutO
       return () => {
         resizeContainerObserver.disconnect()
         resizeFooterObserver.disconnect()
+        if (containerResizeFrameRef.current)
+          cancelAnimationFrame(containerResizeFrameRef.current)
+        if (footerResizeFrameRef.current)
+          cancelAnimationFrame(footerResizeFrameRef.current)
       }
     }
   }, [handleScrollToBottom])

@@ -5,4 +5,16 @@ set -x
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
-pnpm --dir "$ROOT_DIR" install && pnpm --dir "$ROOT_DIR/web" dev:inspect
+WEB_DEV_SCRIPT="dev:vinext"
+
+if [ "${NEXT_USE_NEXT_DEV:-false}" = "true" ]; then
+  WEB_DEV_ARGS=(dev --webpack)
+
+  if [ "${NEXT_ENABLE_INSPECT:-false}" = "true" ]; then
+    WEB_DEV_ARGS+=(--inspect)
+  fi
+
+  pnpm --dir "$ROOT_DIR" install && pnpm --dir "$ROOT_DIR/web" exec next "${WEB_DEV_ARGS[@]}"
+else
+  pnpm --dir "$ROOT_DIR" install && pnpm --dir "$ROOT_DIR/web" "$WEB_DEV_SCRIPT"
+fi

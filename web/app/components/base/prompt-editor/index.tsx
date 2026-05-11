@@ -164,6 +164,7 @@ const PromptEditor: FC<PromptEditorProps> = ({
       {
         replace: TextNode,
         with: (node: TextNode) => new CustomTextNode(node.__text),
+        withKlass: CustomTextNode,
       },
       ContextBlockNode,
       HistoryBlockNode,

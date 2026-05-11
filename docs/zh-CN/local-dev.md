@@ -168,7 +168,15 @@ Web 默认地址：
 
 > 前端依赖安装在仓库根 workspace；无需额外 `cd web && pnpm install`。
 >
-> `./dev/start-web` 会用 `next dev --inspect`，默认调试端口是 `9229`。如果你看到 `9229 already in use`，不影响站点访问；只是调试端口冲突。
+> 当前仓库里，`./dev/start-web` 默认会启动 **vinext 开发服务器**（更适合这份源码分支的本地开发）。
+>
+> 若你想强制切回旧的 `next dev` 路线，可手动执行：
+>
+> ```bash
+> NEXT_USE_NEXT_DEV=true ./dev/start-web
+> ```
+>
+> 源码模式下更推荐访问 `http://localhost:3000`，不要优先测 `127.0.0.1:3000`，因为本地开发服务器可能只监听 `localhost` / `::1`。
 
 ### 5）启动 Worker（建议启动）
 
@@ -188,12 +196,101 @@ Worker 负责异步任务（知识库索引、工作流后台任务、计划任�
 
 ---
 
+## 本地开发（源码）日常怎么启动、访问哪里
+
+源码模式 **不是** 只起一个命令就完事：中间件在 Docker 里，**API 和 Web 是宿主机上的两个独立进程**，关掉对应终端后端口会释放，浏览器就打不开。
+
+### 每天要开哪些进程（建议 4 个终端，都在仓库根目录）
+
+| 顺序 | 命令 | 作用 | 保持运行 |
+| --- | --- | --- | --- |
+| 1 | `./dev/start-docker-compose` | Postgres / Redis / Weaviate / Sandbox 等中间件 | 是（容器后台跑即可） |
+| 2 | `./dev/start-api` | 后端 API + 自动迁移 | 是（终端不关） |
+| 3 | `./dev/start-web` | 前端 Web 开发服（默认 vinext） | 是（终端不关） |
+| 4 | `./dev/start-worker` | Celery 异步任务 | 强烈建议（不关） |
+
+> 启动 Web 前请确认 `node -v` 为 **v22.x**（见上文「Node 版本」）。
+
+### 浏览器访问地址（源码模式）
+
+- **控制台（日常就打开这个）**：`http://localhost:3000`
+- **API 根地址**（一般不在浏览器单独打开）：`http://localhost:5001`  
+  前端通过 `web/.env.local` 里的 `NEXT_PUBLIC_API_PREFIX` / `NEXT_PUBLIC_PUBLIC_API_PREFIX` 请求该地址。
+
+### 自检：服务是否真的在跑
+
+若 `http://localhost:3000` 无法连接，先在本机执行：
+
+```bash
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:5001 -sTCP:LISTEN
+```
+
+- **两行都没有输出**：说明 **Web / API 没起来**（常见是只执行了 `./dev/start-docker-compose`，或关掉了跑 `start-api` / `start-web` 的终端）。请重新执行上表步骤 2、3。
+- **有监听**：再试浏览器；若仍异常，看对应终端里的报错日志。
+
+### 与 Docker 一键模式的区别（避免混用地址）
+
+| 模式 | 控制台入口 |
+| --- | --- |
+| 源码开发 | `http://localhost:3000` |
+| Docker 一键（`./dify-compose`） | `http://localhost/install`（经 Nginx，一般为 80 端口） |
+
+---
+
 ## 启动后你应该看到什么
 
 - `./dev/start-api` 终端有 Flask 启动日志，监听 `0.0.0.0:5001`
-- `./dev/start-web` 终端有 Next.js/vinext dev server 日志，监听 `localhost:3000`
+- `./dev/start-web` 终端有 vinext dev server 日志，监听 `localhost:3000`
 - `./dev/start-worker` 终端有 Celery worker 启动日志
 - 浏览器打开 `http://localhost:3000` 可以进入控制台并完成初始化/登录
+
+---
+
+## 源码开发模式下常见“黑框报错”说明
+
+如果你用的是 **方式 B：源码开发模式**，偶尔会看到浏览器里弹出黑色错误浮层（dev overlay）。这类现象不一定代表“初始化数据坏了”或“后端挂了”，很多是 **前端开发模式** 本身把问题放大显示出来。
+
+### 现象 1：`/apps` 页面出现 `Hydration failed`
+
+常见表现：
+
+- 浏览器打开 `http://localhost:3000/apps`
+- 页面能加载，但会弹出 `Hydration failed because the server rendered text didn't match the client`
+
+这类问题在本地源码开发模式下，**很常见是浏览器扩展注入脚本导致**，而不是 Dify 业务数据本身有问题。  
+如果扩展在 React hydrate 之前改了页面 DOM，开发服务器就会把它当作 hydration mismatch 直接弹出来。
+
+建议处理：
+
+- 优先使用 **无痕窗口** 打开，并确认无痕里没有允许扩展运行
+- 或临时禁用浏览器扩展后再访问
+- 如果 Docker Compose 一键模式没有这个问题、源码模式有，通常就是因为源码模式是开发服务器，更容易把这种前端不一致直接暴露出来
+
+### 现象 2：`/app/.../configuration` 页面出现 `ResizeObserver loop completed with undelivered notifications`
+
+常见表现：
+
+- 点击某个应用（如 AI 聊天）进入配置页
+- 页面大体可用，但偶尔弹出 `ResizeObserver loop completed with undelivered notifications`
+
+这类问题更像是 **前端开发态布局观察器 / 编辑器 / 调试浮层** 的兼容问题，被本地 dev overlay 放大显示。  
+尤其是聊天预览、Prompt 编辑器、可伸缩面板等组件，在开发模式下更容易触发。
+
+建议理解为：
+
+- 如果页面功能基本正常、聊天/配置也能继续操作，通常不是初始化数据损坏
+- 它更接近“当前源码分支的本地开发体验问题”，而不是 Docker 一键模式下用户一定会遇到的正式线上故障
+- 刷新页面、减少浏览器扩展干扰后，很多时候会缓解或消失
+
+### 为什么 Docker 一键模式不一定会碰到，源码模式却会碰到？
+
+因为两种方式运行环境不同：
+
+- **Docker Compose 一键启动** 更接近打包后的运行环境
+- **源码开发模式** 跑的是开发服务器，带有 HMR、dev overlay、调试脚本、实时编译
+
+所以一些“本来只是警告、短暂布局抖动、浏览器注入干扰”的问题，在源码开发模式下会被直接弹成黑框错误；而 Docker 一键模式下不一定会暴露得这么明显。
 
 ---
 
@@ -256,7 +353,7 @@ corepack enable
 ./dev/setup
 ```
 
-### 4）数据库/Redis 连接失败
+### 5）数据库/Redis 连接失败
 
 优先确认：
 

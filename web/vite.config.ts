@@ -11,6 +11,7 @@ import { nextStaticImageTestPlugin } from './plugins/vite/next-static-image-test
 
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const isCI = !!process.env.CI
+const enableCodeInspector = process.env.NEXT_ENABLE_CODE_INSPECTOR === 'true'
 const rootClientInjectTarget = getRootClientInjectTarget(projectRoot)
 
 export default defineConfig(({ mode }) => {
@@ -39,13 +40,17 @@ export default defineConfig(({ mode }) => {
           ]
         : [
             Inspect(),
-            createCodeInspectorPlugin({
-              injectTarget: rootClientInjectTarget,
-            }),
-            createForceInspectorClientInjectionPlugin({
-              injectTarget: rootClientInjectTarget,
-              projectRoot,
-            }),
+            ...(enableCodeInspector
+              ? [
+                  createCodeInspectorPlugin({
+                    injectTarget: rootClientInjectTarget,
+                  }),
+                  createForceInspectorClientInjectionPlugin({
+                    injectTarget: rootClientInjectTarget,
+                    projectRoot,
+                  }),
+                ]
+              : []),
             tailwindcss(),
             react(),
             vinext({ react: false }),
